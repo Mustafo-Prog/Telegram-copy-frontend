@@ -1,4 +1,4 @@
-import { request } from './http.js';
+import { request } from 'https://telegram-copy-backend.onrender.com';
 
 export function register({ email, password, displayName }) {
   return request('/auth/register', { method: 'POST', body: { email, password, displayName } });
