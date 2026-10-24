@@ -45,13 +45,10 @@ export function AuthProvider({ children }) {
     [queryClient]
   );
 
-  const login = useCallback(
-    async (credentials) => saveSession(await authApi.login(credentials)),
-    [saveSession]
-  );
+  const requestCode = useCallback((email) => authApi.requestCode(email), []);
 
-  const register = useCallback(
-    async (data) => saveSession(await authApi.register(data)),
+  const verifyCode = useCallback(
+    async ({ email, code }) => saveSession(await authApi.verifyCode(email, code)),
     [saveSession]
   );
 
@@ -63,8 +60,8 @@ export function AuthProvider({ children }) {
   }, [queryClient]);
 
   const value = useMemo(
-    () => ({ user, loading, sessionError, retrySession: restoreSession, login, register, logout }),
-    [user, loading, sessionError, restoreSession, login, register, logout]
+    () => ({ user, loading, sessionError, retrySession: restoreSession, requestCode, verifyCode, logout }),
+    [user, loading, sessionError, restoreSession, requestCode, verifyCode, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

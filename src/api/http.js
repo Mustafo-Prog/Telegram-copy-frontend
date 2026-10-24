@@ -1,36 +1,36 @@
+import axios from 'axios';
+
 export const TOKEN_KEY = 'tg_token';
 
-function createError(message, { code, params, status } = {}) {
-  const err = new Error(message);
-  err.code = code;
-  err.params = params;
-  err.status = status;
-  return err;
-}
+// Адрес backend: задаётся переменной VITE_API_URL, по умолчанию — Render
+// Принимаем адрес с /api или без него и со слэшем в конце: /api добавляется ниже один раз
+const API_URL = (import.meta.env.VITE_API_URL || 'https://telegram-copy-backend.onrender.com')
+  .trim()
+  .replace(/\/+$/, '')
+  .replace(/\/api$/, '');
 
-export async function request(path, { method = 'GET', body } = {}) {
+// Render на бесплатном тарифе «просыпается» до минуты, поэтому таймаут большой
+export const api = axios.create({
+  baseURL: `${API_URL}/api`,
+  timeout: 90000,
+});
+
+api.interceptors.request.use((config) => {
   const token = localStorage.getItem(TOKEN_KEY);
-  let res;
-  try {
-    res = await fetch(`/api${path}`, {
-      method,
-      headers: {
-        ...(body !== undefined && { 'Content-Type': 'application/json' }),
-        ...(token && { Authorization: `Bearer ${token}` }),
-      },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
-  } catch {
-    throw createError('Server unavailable', { code: 'network' });
-  }
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw createError(data.message || 'Server error', {
-      code: data.code ?? (data.message ? undefined : 'server'),
-      params: data.params,
-      status: res.status,
-    });
+// Приводим ошибки axios к той же форме, что ждут компоненты и переводы: status, code, params
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const response = error.response;
+    const data = response?.data ?? {};
+    const normalized = new Error(data.message || error.message || 'Server error');
+    normalized.status = response?.status;
+    normalized.code = response ? data.code ?? 'server' : 'network';
+    normalized.params = data.params;
+    return Promise.reject(normalized);
   }
-  return data;
-}
+);

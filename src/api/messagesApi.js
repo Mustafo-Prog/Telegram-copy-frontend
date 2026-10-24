@@ -1,11 +1,11 @@
-import { request } from './http.js';
+import { api } from './http.js';
 
 export async function getMessages() {
-  const { messages } = await request('/messages');
-  return messages;
+  const { data } = await api.get('/messages');
+  return data.messages;
 }
 
 export async function sendMessage(text) {
-  const { message } = await request('/messages', { method: 'POST', body: { text } });
-  return message;
+  const { data } = await api.post('/messages', { text });
+  return data.message;
 }
