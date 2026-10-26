@@ -1,14 +1,16 @@
-import { request } from 'https://telegram-copy-backend.onrender.com';
+import { api } from './http.js';
 
-export function register({ email, password, displayName }) {
-  return request('/auth/register', { method: 'POST', body: { email, password, displayName } });
+export async function requestCode(email) {
+  const { data } = await api.post('/auth/request-code', { email });
+  return data;
 }
 
-export function login({ email, password }) {
-  return request('/auth/login', { method: 'POST', body: { email, password } });
+export async function verifyCode(email, code) {
+  const { data } = await api.post('/auth/verify-code', { email, code });
+  return data;
 }
 
 export async function getMe() {
-  const { user } = await request('/auth/me');
-  return user;
+  const { data } = await api.get('/auth/me');
+  return data.user;
 }
