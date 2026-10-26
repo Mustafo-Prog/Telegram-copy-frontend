@@ -17,6 +17,8 @@ export function createDemoStore(seedChats) {
       id: chat.id,
       titleKey: chat.titleKey,
       subtitleKey: chat.subtitleKey,
+      presence: chat.presence,
+      lastSeenAt: chat.lastSeenAt,
       messages: chat.messages.map((m) => ({ ...m })),
     })),
   };
@@ -37,20 +39,33 @@ function findMessage(chat, messageId) {
 // resolve переводит текст и подставляет подписи; сами данные не меняет
 export function loadDemoMessages(store, chatId, resolve) {
   const chat = findChat(store, chatId);
-  return { messages: chat.messages.map((m) => resolve(m)), hasMore: false };
+  return { messages: chat.messages.map((m) => resolve(withReply(chat, m))), hasMore: false };
 }
 
-export function sendDemoMessage(store, chatId, text, me) {
+function withReply(chat, message) {
+  if (!message.replyToId) return { ...message };
+  const original = chat.messages.find((m) => m.id === message.replyToId);
+  return { ...message, replyTo: original ? {
+    id: original.id, senderName: original.senderName, senderId: original.senderId,
+    text: original.text, textKey: original.textKey, attachmentName: original.attachment?.name,
+  } : { id: message.replyToId, unavailable: true } };
+}
+
+export function sendDemoMessage(store, chatId, text, me, { file = null, replyToId = null } = {}) {
   const chat = findChat(store, chatId);
+  if (!text.trim() && !file) throw new DemoError('message_empty');
+  if (replyToId && !chat.messages.some((m) => m.id === replyToId)) throw new DemoError('reply_not_found');
   const message = {
     id: `demo-m-${store.nextId++}`,
     senderId: me.id,
     senderName: me.displayName,
     text: text.trim(),
     createdAt: new Date().toISOString(),
+    replyToId,
+    attachment: file ? { name: file.name, contentType: file.type, size: file.size, blob: file } : null,
   };
   chat.messages.push(message);
-  return { ...message };
+  return withReply(chat, message);
 }
 
 // Редактировать можно только свои сообщения
@@ -58,10 +73,11 @@ export function editDemoMessage(store, chatId, messageId, text, meId) {
   const chat = findChat(store, chatId);
   const message = findMessage(chat, messageId);
   if (message.senderId !== meId) throw new DemoError('forbidden');
+  if (!text.trim() && !message.attachment) throw new DemoError('message_empty');
   message.text = text.trim();
   delete message.textKey;
   message.editedAt = new Date().toISOString();
-  return { ...message };
+  return withReply(chat, message);
 }
 
 // Удаляются только свои сообщения; чужие пропускаются со счётчиком (как на сервере)

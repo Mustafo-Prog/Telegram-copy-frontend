@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import ru from './locales/ru.js';
 import en from './locales/en.js';
 import uz from './locales/uz.js';
+import * as extras from './locales/chatExtras.js';
 
 const STORAGE_KEY = 'tg_lang';
 const DEFAULT_LANG = 'ru';
@@ -12,7 +13,7 @@ export const LANGUAGES = [
   { code: 'uz', label: 'UZ', name: 'Oʻzbekcha', locale: 'uz-UZ' },
 ];
 
-const DICTIONARIES = { ru, en, uz };
+const DICTIONARIES = { ru: { ...ru, ...extras.ru }, en: { ...en, ...extras.en }, uz: { ...uz, ...extras.uz } };
 
 function detectLanguage() {
   try {

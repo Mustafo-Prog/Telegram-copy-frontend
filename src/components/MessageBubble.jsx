@@ -1,8 +1,9 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useI18n } from '../i18n/I18nProvider.jsx';
 import { hueFromSeed } from '../utils/hue.js';
 import Avatar from './Avatar.jsx';
-import { CheckCheckIcon } from './icons.jsx';
+import { CheckCheckIcon, CheckIcon } from './icons.jsx';
+import MessageAttachment from './MessageAttachment.jsx';
 
 const LONG_PRESS_MS = 450;
 const MOVE_TOLERANCE_PX = 10;
@@ -19,6 +20,8 @@ export default function MessageBubble({
   onOpenMenu,
   onRetry,
   onDiscard,
+  read = false,
+  onJumpToMessage,
 }) {
   const { t, formatTime } = useI18n();
   const author = message.senderName ?? t('chat.deletedUser');
@@ -36,6 +39,7 @@ export default function MessageBubble({
     clearTimeout(pressTimer.current);
     pressTimer.current = null;
   };
+  useEffect(() => () => clearTimeout(pressTimer.current), []);
 
   const onTouchStart = (e) => {
     longPressed.current = false;
@@ -88,7 +92,7 @@ export default function MessageBubble({
   const avatar = <Avatar name={author} seed={seed} size={34} src={message.senderAvatarUrl} />;
 
   return (
-    <div className={rowClass} style={{ '--hue': hueFromSeed(seed) }}>
+    <div className={rowClass} data-message-id={message.id} style={{ '--hue': hueFromSeed(seed) }}>
       {selecting && <span className={`bubble-check${selected ? ' bubble-check--on' : ''}`} aria-hidden="true" />}
       {!isOwn && (
         <div className="bubble-row__avatar">
@@ -104,6 +108,12 @@ export default function MessageBubble({
       )}
       <div
         className={bubbleClass}
+        tabIndex={canUseMenu ? 0 : undefined}
+        onKeyDown={(e) => {
+          if (canUseMenu && (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10'))) {
+            e.preventDefault(); const rect = e.currentTarget.getBoundingClientRect(); onOpenMenu(rect.left + 12, rect.top + 12);
+          }
+        }}
         onClick={onClick}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
@@ -127,11 +137,20 @@ export default function MessageBubble({
           ) : (
             <div className="bubble__author">{author}</div>
           ))}
-        <div className="bubble__text">{message.text}</div>
+        {message.replyTo && <button type="button" className="bubble__reply" onClick={(e) => {
+          e.stopPropagation(); onJumpToMessage?.(message.replyTo.id);
+        }} disabled={message.replyTo.unavailable}>
+          <strong>{message.replyTo.unavailable ? t('chat.replyUnavailable') : message.replyTo.senderName ?? t('chat.replyMessage')}</strong>
+          <span>{message.replyTo.unavailable ? t('chat.originalUnavailable') : message.replyTo.text || message.replyTo.attachmentName || t('chat.replyMessage')}</span>
+        </button>}
+        {message.attachment && <MessageAttachment attachment={message.attachment} />}
+        {message.text && <div className="bubble__text">{message.text}</div>}
         <div className="bubble__meta">
           {message.editedAt && <span className="bubble__edited">{t('chat.edited')}</span>}
           <span>{message.pending ? '…' : formatTime(message.createdAt)}</span>
-          {isOwn && !message.pending && <CheckCheckIcon className="bubble__ticks" />}
+          {isOwn && !message.pending && <span className="bubble__receipt" role="img" aria-label={t(read ? 'chat.read' : 'chat.sent')} title={t(read ? 'chat.read' : 'chat.sent')}>
+            {read ? <CheckCheckIcon className="bubble__ticks" /> : <CheckIcon className="bubble__ticks" />}
+          </span>}
         </div>
         {message.failed && (
           <div className="bubble__failed" role="alert">

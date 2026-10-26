@@ -1,10 +1,11 @@
 import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSyncExternalStore } from 'react';
 import { getMessages } from '../api/messagesApi.js';
 import { listConversations } from '../api/conversationsApi.js';
 import { useI18n } from '../i18n/I18nProvider.jsx';
 import { setPresenceMany } from '../realtime/presence.js';
-import { unwatchPresence, watchPresence } from '../realtime/socket.js';
+import { unwatchPresence, watchPresence, subscribeRealtimeStatus, getRealtimeStatus } from '../realtime/socket.js';
 import { usePresence } from '../realtime/presence.js';
 import Avatar from './Avatar.jsx';
 
@@ -22,15 +23,18 @@ function PeerAvatar({ peer }) {
 // Список без опроса: обновления приходят событиями; статусы собеседников — подпиской
 export default function ChatList({ activeKey, onSelectGeneral, onSelectConversation }) {
   const { t, formatTime } = useI18n();
+  const realtimeStatus = useSyncExternalStore(subscribeRealtimeStatus, getRealtimeStatus);
   const { data: messages = [] } = useQuery({
     queryKey: ['messages'],
     queryFn: getMessages,
     staleTime: 60 * 1000,
+    refetchInterval: realtimeStatus === 'connected' ? false : 5000,
   });
   const { data: conversations = [] } = useQuery({
     queryKey: ['conversations'],
     queryFn: listConversations,
     staleTime: 15 * 1000,
+    refetchInterval: realtimeStatus === 'connected' ? false : 5000,
   });
 
   const peerIds = useMemo(
@@ -46,7 +50,7 @@ export default function ChatList({ activeKey, onSelectGeneral, onSelectConversat
   const last = messages[messages.length - 1];
   const groupName = t('chat.groupName');
   const generalPreview = last
-    ? `${last.senderName ?? t('chat.deletedUser')}: ${last.text}`
+    ? `${last.senderName ?? t('chat.deletedUser')}: ${last.text || last.attachment?.name || ''}`
     : t('chat.noMessages');
 
   return (
@@ -86,7 +90,10 @@ export default function ChatList({ activeKey, onSelectGeneral, onSelectConversat
                   <span className="chat-list__name">{peer?.displayName ?? t('chat.deletedUser')}</span>
                   <span className="chat-list__time">{formatTime(conv.lastMessageAt)}</span>
                 </div>
-                <div className="chat-list__preview">{conv.lastMessageText || t('chat.noMessages')}</div>
+                <div className="chat-list__bottom">
+                  <div className="chat-list__preview">{conv.lastMessageText || t('chat.noMessages')}</div>
+                  {conv.unreadCount > 0 && <span className="chat-list__unread" aria-label={t('chat.unread', { count: conv.unreadCount })}>{conv.unreadCount > 99 ? '99+' : conv.unreadCount}</span>}
+                </div>
               </div>
             </button>
           </li>

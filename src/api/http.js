@@ -2,9 +2,9 @@ import axios from 'axios';
 
 export const TOKEN_KEY = 'tg_token';
 
-// Адрес backend: задаётся переменной VITE_API_URL, по умолчанию — Render
+// Локально запросы идут через Vite; в production — через VITE_API_URL или Render.
 // Принимаем адрес с /api или без него и со слэшем в конце: /api добавляется ниже один раз
-const API_URL = (import.meta.env.VITE_API_URL || 'https://telegram-copy-backend.onrender.com')
+const API_URL = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? window.location.origin : 'https://telegram-copy-backend.onrender.com'))
   .trim()
   .replace(/\/+$/, '')
   .replace(/\/api$/, '');

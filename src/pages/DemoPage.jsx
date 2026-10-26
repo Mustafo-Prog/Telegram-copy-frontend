@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Avatar from '../components/Avatar.jsx';
 import ChatWindow from '../components/ChatWindow.jsx';
+import ChatEmptyState from '../components/ChatEmptyState.jsx';
 import LanguageSwitcher from '../components/LanguageSwitcher.jsx';
 import ThemeToggle from '../components/ThemeToggle.jsx';
 import { useI18n } from '../i18n/I18nProvider.jsx';
@@ -25,9 +26,11 @@ const SEED = [
     id: 'alex',
     titleKey: 'demo.chats.alex.title',
     subtitleKey: 'demo.chats.alex.status',
+    presence: 'offline',
+    lastSeenAt: minutesAgo(8),
     messages: [
       { id: 'a1', senderId: 'demo-alex', senderName: 'Alex Morgan', textKey: 'demo.chats.alex.m1', createdAt: minutesAgo(30) },
-      { id: 'a2', senderId: DEMO_ME_ID, senderName: '', textKey: 'demo.chats.alex.m2', createdAt: minutesAgo(25) },
+      { id: 'a2', senderId: DEMO_ME_ID, senderName: '', textKey: 'demo.chats.alex.m2', createdAt: minutesAgo(25), readByPeer: true },
       { id: 'a3', senderId: 'demo-alex', senderName: 'Alex Morgan', textKey: 'demo.chats.alex.m3', createdAt: minutesAgo(20) },
     ],
   },
@@ -52,11 +55,12 @@ const SEED = [
 
 // Демоверсия: без входа, без API и без токена. Открывается по кнопке на экране входа.
 export default function DemoPage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [store] = useState(() => createDemoStore(SEED));
-  const [version, setVersion] = useState(0);
+  const [, setVersion] = useState(0);
+  const [sessionId] = useState(() => crypto.randomUUID());
   const [activeId, setActiveId] = useState(null);
 
   const me = useMemo(
@@ -69,23 +73,29 @@ export default function DemoPage() {
     ...m,
     text: m.textKey ? t(m.textKey) : m.text,
     senderName: m.senderId === DEMO_ME_ID ? t('demo.you') : m.senderName,
+    replyTo: m.replyTo ? { ...m.replyTo, text: m.replyTo.textKey ? t(m.replyTo.textKey) : m.replyTo.text,
+      senderName: m.replyTo.senderId === DEMO_ME_ID ? t('demo.you') : m.replyTo.senderName } : null,
   });
 
   const chats = store.chats;
   const active = chats.find((c) => c.id === activeId) ?? null;
   const chatOpen = Boolean(active) && (!isMobile || Boolean(activeId));
+  const change = (action) => { const result = action(); setVersion((v) => v + 1); return result; };
 
   const demoChat = active
     ? {
-        key: `demo-${active.id}-${version}`,
+        key: `demo-${sessionId}-${active.id}-${lang}`,
         scope: 'direct',
         title: t(active.titleKey),
         subtitle: t(active.subtitleKey),
+        presenceUserId: active.presence ? `demo-${active.id}` : null,
+        presence: active.presence,
+        lastSeenAt: active.lastSeenAt,
         avatar: { name: t(active.titleKey), seed: active.id },
         load: async () => loadDemoMessages(store, active.id, resolve),
-        send: async (text) => resolve(sendDemoMessage(store, active.id, text, me)),
-        edit: async (id, text) => resolve(editDemoMessage(store, active.id, id, text, me.id)),
-        remove: async (ids) => removeDemoMessages(store, active.id, ids, me.id),
+        send: async (text, options) => resolve(change(() => sendDemoMessage(store, active.id, text, me, options))),
+        edit: async (id, text) => resolve(change(() => editDemoMessage(store, active.id, id, text, me.id))),
+        remove: async (ids) => change(() => removeDemoMessages(store, active.id, ids, me.id)),
         clear: async () => {
           clearDemoChat(store, active.id);
           setVersion((v) => v + 1);
@@ -127,7 +137,7 @@ export default function DemoPage() {
         <ul className="chat-list">
           {chats.map((c) => {
             const last = c.messages[c.messages.length - 1];
-            const preview = last ? (last.textKey ? t(last.textKey) : last.text) : t('chat.noMessages');
+            const preview = last ? (last.textKey ? t(last.textKey) : last.text || last.attachment?.name) : t('chat.noMessages');
             const isActive = c.id === activeId;
             return (
               <li key={c.id}>
@@ -164,10 +174,7 @@ export default function DemoPage() {
             onBack={() => setActiveId(null)}
           />
         ) : (
-          <div className="chat__empty">
-            <div className="chat__empty-title">{t('demo.title')}</div>
-            <div>{t('demo.note')}</div>
-          </div>
+          <ChatEmptyState choose demo />
         )}
       </main>
     </div>

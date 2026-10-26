@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useI18n } from '../i18n/I18nProvider.jsx';
 import {
@@ -18,6 +18,8 @@ import MessageInput from './MessageInput.jsx';
 import MessageMenu from './MessageMenu.jsx';
 import PresenceLabel from './PresenceLabel.jsx';
 import { isRealtimeConnected } from '../realtime/socket.js';
+import { isReadByPeer } from '../utils/messageContent.js';
+import ChatEmptyState from './ChatEmptyState.jsx';
 
 const GROUP_GAP_MS = 5 * 60 * 1000;
 
@@ -97,6 +99,10 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
   const lastId = messages.length ? messages[messages.length - 1].id : null;
 
   const [editing, setEditing] = useState(null); // { id, text }
+  const [replying, setReplying] = useState(null);
+  const [atBottom, setAtBottom] = useState(true);
+  const [newMessageIds, setNewMessageIds] = useState(() => new Set());
+  const [focused, setFocused] = useState(() => document.visibilityState === 'visible' && document.hasFocus());
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState(() => new Set());
   const [menu, setMenu] = useState(null); // { message, x, y }
@@ -105,8 +111,45 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
   const [notice, setNotice] = useState(null);
 
   const bottomRef = useRef(null);
+  const scrollRef = useRef(null);
+  const contentRef = useRef(null);
+  const atBottomRef = useRef(true);
+  const previousLastRef = useRef(null);
+  const scrollRequestedRef = useRef(false);
+  const prependRef = useRef(null);
+  const readAckRef = useRef(null);
+  const mountedRef = useRef(true);
+  const jumpingRef = useRef(false);
   const hasScrolledRef = useRef(false);
-  const prevVisibleRef = useRef(visible);
+  const readThroughId = [chat.peerLastReadMessageId, ...(data?.pages ?? []).map((page) => page.peerLastReadMessageId)].filter(Boolean).sort().at(-1);
+  const lastServerId = messages.filter((m) => !m.pending).at(-1)?.id;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const onFocus = () => setFocused(document.visibilityState === 'visible' && document.hasFocus());
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      mountedRef.current = false;
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, []);
+
+  // Only the foreground chat at its latest messages can acknowledge a read.
+  useEffect(() => {
+    if (!chat.markRead || !visible || !focused || !atBottom || !lastServerId || (readAckRef.current && readAckRef.current >= lastServerId)) return undefined;
+    const timer = setTimeout(async () => {
+      try {
+        await chat.markRead(lastServerId);
+        if (!readAckRef.current || lastServerId > readAckRef.current) readAckRef.current = lastServerId;
+        queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      } catch { /* Retry on refetch, focus or the next message; do not claim a read locally. */ }
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [lastServerId, visible, focused, atBottom, chat.markRead, data]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -116,8 +159,9 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
 
   // Отправка: сообщение видно сразу, затем заменяется настоящим
   const send = useMutation({
-    mutationFn: (text) => chat.send(text),
-    onMutate: (text) => {
+    mutationFn: ({ text, file, replyTo }) => chat.send(text, { file, replyToId: replyTo?.id }),
+    onMutate: ({ text, file, replyTo }) => {
+      scrollRequestedRef.current = true;
       const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       setPending((list) => [
         ...list,
@@ -130,6 +174,9 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
           text,
           createdAt: new Date().toISOString(),
           pending: true,
+          replyTo: replyTo ? { id: replyTo.id, senderName: replyTo.senderName, text: replyTo.text, attachmentName: replyTo.attachment?.name } : null,
+          attachment: file ? { name: file.name, contentType: file.type, size: file.size, blob: file } : null,
+          file,
         },
       ]);
       return { tempId };
@@ -137,6 +184,8 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
     onSuccess: (message, _text, context) => {
       setPending((list) => list.filter((m) => m.id !== context.tempId));
       queryClient.setQueryData(messagesKey, (old) => upsertNewest(old, message, [context.tempId]));
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
     },
     onError: (error, _text, context) => {
       // Не отправилось: остается на экране с кнопками «Повторить» и «Отменить»
@@ -147,7 +196,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
 
   const retrySend = (message) => {
     setPending((list) => list.filter((m) => m.id !== message.id));
-    send.mutate(message.text);
+    send.mutate({ text: message.text, file: message.file, replyTo: message.replyTo });
   };
   const discardSend = (message) => setPending((list) => list.filter((m) => m.id !== message.id));
 
@@ -166,6 +215,8 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
       queryClient.setQueryData(messagesKey, (old) =>
         mapPages(old, (list) => list.map((m) => (m.id === message.id ? message : m)))
       );
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['messages'] });
     },
     onError: (error, _vars, context) => {
       if (context?.snapshot) queryClient.setQueryData(messagesKey, context.snapshot);
@@ -200,16 +251,90 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
     }
   };
 
-  // Прокрутка вниз: при новых сообщениях и при открытии чата; не при подгрузке старых
-  useEffect(() => {
-    const justShown = visible && !prevVisibleRef.current;
-    prevVisibleRef.current = visible;
-    if (!visible || !lastId) return;
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const smooth = hasScrolledRef.current && !justShown && !reduceMotion;
-    bottomRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
+  const updateScrollPosition = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 72;
+    atBottomRef.current = bottom;
+    setAtBottom(bottom);
+    if (bottom) setNewMessageIds((ids) => ids.size ? new Set() : ids);
+  };
+
+  const jumpToLatest = () => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    updateScrollPosition();
+  };
+
+  // Preserve the reader's place, including when older pages are prepended.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !visible || !messages.length) return;
+    const snapshot = prependRef.current;
+    if (snapshot && (data?.pages.length ?? 0) > snapshot.pages) {
+      const anchor = [...el.querySelectorAll('[data-message-id]')].find((row) => row.dataset.messageId === snapshot.anchorId);
+      if (anchor) el.scrollTop += anchor.getBoundingClientRect().top - snapshot.anchorTop;
+      else el.scrollTop = snapshot.top + el.scrollHeight - snapshot.height;
+      prependRef.current = null;
+    } else if (!hasScrolledRef.current || atBottomRef.current || scrollRequestedRef.current) {
+      el.scrollTop = el.scrollHeight;
+      atBottomRef.current = true;
+      setAtBottom(true);
+      setNewMessageIds((ids) => ids.size ? new Set() : ids);
+    } else if (previousLastRef.current && previousLastRef.current !== lastId) {
+      const index = messages.findIndex((m) => m.id === previousLastRef.current);
+      const added = index >= 0 ? messages.slice(index + 1).filter((m) => !m.pending && m.senderId !== currentUser.id).map((m) => m.id) : [];
+      if (added.length) setNewMessageIds((ids) => new Set([...ids, ...added]));
+    }
+    scrollRequestedRef.current = false;
     hasScrolledRef.current = true;
-  }, [lastId, visible]);
+    previousLastRef.current = lastId;
+  }, [messages, visible]);
+
+  useEffect(() => {
+    const observer = new ResizeObserver(() => {
+      if (visible && atBottomRef.current && !prependRef.current) jumpToLatest();
+    });
+    if (contentRef.current) observer.observe(contentRef.current);
+    return () => observer.disconnect();
+  }, [visible]);
+
+  const loadOlder = async () => {
+    const el = scrollRef.current;
+    if (el) {
+      const top = el.getBoundingClientRect().top;
+      const anchor = [...el.querySelectorAll('[data-message-id]')].find((row) => row.getBoundingClientRect().bottom > top);
+      prependRef.current = { top: el.scrollTop, height: el.scrollHeight, pages: data?.pages.length ?? 0,
+        anchorId: anchor?.dataset.messageId, anchorTop: anchor?.getBoundingClientRect().top };
+    }
+    try {
+      const result = await fetchNextPage();
+      if (result.isError) { prependRef.current = null; setNotice(tError(result.error)); }
+      return result;
+    }
+    catch (error) { prependRef.current = null; setNotice(tError(error)); return null; }
+  };
+
+  const jumpToMessage = async (id) => {
+    if (jumpingRef.current) return;
+    jumpingRef.current = true;
+    try {
+      let loaded = data;
+      while (mountedRef.current && loaded && !flattenPages(loaded.pages).some((m) => m.id === id) && loaded.pages.at(-1)?.hasMore) {
+        const result = await loadOlder();
+        if (!result || result.isError || result.data === loaded) break;
+        loaded = result.data;
+      }
+      requestAnimationFrame(() => {
+        if (!mountedRef.current) return;
+        const target = [...(scrollRef.current?.querySelectorAll('[data-message-id]') ?? [])].find((el) => el.dataset.messageId === id);
+        if (!target) { setNotice(t('chat.originalUnavailable')); return; }
+        target.scrollIntoView({ block: 'center', behavior: 'auto' });
+        if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) target.animate([{ opacity: 0.4 }, { opacity: 1 }], { duration: 600 });
+        updateScrollPosition();
+      });
+    } finally { jumpingRef.current = false; }
+  };
 
   // Выделение: повторный клик снимает выбор; пустой выбор закрывает режим; Escape выходит
   useEffect(() => {
@@ -248,7 +373,8 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
   const canDelete = (m) => canDeleteMessage(m, { isDirect, userId: currentUser.id });
 
   const menuItems = (m) => {
-    const items = [{ key: 'copy', label: t('actions.copy') }];
+    const items = [{ key: 'reply', label: t('actions.reply') }];
+    if (m.text) items.push({ key: 'copy', label: t('actions.copy') });
     if (canEdit(m)) items.push({ key: 'edit', label: t('actions.edit') });
     items.push({ key: 'select', label: t('actions.select') });
     if (canDelete(m)) items.push({ key: 'delete', label: t('actions.delete'), danger: true });
@@ -256,6 +382,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
   };
 
   const onMenuSelect = (key) => {
+    if (edit.isPending) return;
     const message = menu?.message;
     setMenu(null);
     if (!message) return;
@@ -263,7 +390,8 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
       navigator.clipboard?.writeText(message.text);
       setNotice(t('actions.copied'));
     }
-    if (key === 'edit') setEditing({ id: message.id, text: message.text });
+    if (key === 'edit') { setReplying(null); setEditing({ id: message.id, text: message.text, attachment: message.attachment }); }
+    if (key === 'reply') { setEditing(null); setReplying(message); }
     if (key === 'select') startSelect(message.id);
     if (key === 'delete') setDialog({ kind: 'delete', ids: [message.id] });
   };
@@ -292,12 +420,17 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
     }
   };
 
-  const submitInput = (text) => {
+  const submitInput = async (text, file) => {
     if (editing) {
-      edit.mutate({ id: editing.id, text });
-      setEditing(null);
+      try {
+        await edit.mutateAsync({ id: editing.id, text });
+        setEditing(null);
+        return true;
+      } catch { return false; }
     } else {
-      send.mutate(text);
+      send.mutate({ text, file, replyTo: replying });
+      setReplying(null);
+      return true;
     }
   };
 
@@ -349,7 +482,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
         <div className="chat__name">{chat.title}</div>
         <div className="chat__status">
           {chat.presenceUserId ? (
-            <PresenceLabel userId={chat.presenceUserId} />
+            <PresenceLabel userId={chat.presenceUserId} fallback={chat.presence} lastSeenAt={chat.lastSeenAt} />
           ) : (
             chat.subtitle ?? t('chat.messageCount', { count: messages.length })
           )}
@@ -433,12 +566,13 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
         </header>
       )}
 
-      <div className="chat__messages">
+      <div className="chat__messages" ref={scrollRef} onScroll={updateScrollPosition}>
+        <div className="chat__content" ref={contentRef}>
         {hasNextPage && (
           <button
             type="button"
             className="btn-link chat__load-older"
-            onClick={() => fetchNextPage()}
+            onClick={loadOlder}
             disabled={isFetchingNextPage}
           >
             {isFetchingNextPage ? t('common.loading') : t('chat.loadOlder')}
@@ -447,10 +581,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
         {isLoading && <ChatSkeleton />}
         {isError && <div className="chat__hint chat__hint--error">{t('chat.loadFailed')}</div>}
         {!isLoading && !isError && messages.length === 0 && (
-          <div className="chat__empty">
-            <div className="chat__empty-title">{t('chat.emptyTitle')}</div>
-            <div>{t('chat.emptyHint')}</div>
-          </div>
+          <ChatEmptyState />
         )}
         {items.map((item) =>
           item.type === 'day' ? (
@@ -471,18 +602,25 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
               onOpenMenu={(x, y) => setMenu({ message: item.message, x, y })}
               onRetry={() => retrySend(item.message)}
               onDiscard={() => discardSend(item.message)}
+              read={isDirect && isReadByPeer(item.message, readThroughId)}
+              onJumpToMessage={jumpToMessage}
             />
           )
         )}
         <div ref={bottomRef} />
+        </div>
       </div>
+
+      {!atBottom && <button type="button" className="chat__jump" onClick={jumpToLatest} aria-label={t('chat.jumpToLatest')}>
+        <span aria-hidden="true">↓</span> {newMessageIds.size ? t('chat.newMessages', { count: newMessageIds.size }) : t('chat.jumpToLatest')}
+      </button>}
 
       {notice && (
         <div className="chat__notice" role="status">
           {notice}
         </div>
       )}
-      {!selecting && <MessageInput onSend={submitInput} editing={editing} onCancelEdit={() => setEditing(null)} />}
+      {!selecting && <MessageInput onSend={submitInput} disabled={edit.isPending} editing={editing} onCancelEdit={() => setEditing(null)} replying={replying} onCancelReply={() => setReplying(null)} />}
 
       {menu && (
         <MessageMenu

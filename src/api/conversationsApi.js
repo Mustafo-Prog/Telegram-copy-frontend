@@ -1,4 +1,5 @@
 import { api } from './http.js';
+import { messagePayload } from '../utils/messageContent.js';
 
 export async function listConversations() {
   const { data } = await api.get('/conversations');
@@ -19,9 +20,14 @@ export async function getConversationMessages(conversationId, before) {
   return data;
 }
 
-export async function sendConversationMessage(conversationId, text) {
-  const { data } = await api.post(`/conversations/${conversationId}/messages`, { text });
+export async function sendConversationMessage(conversationId, text, options) {
+  const { data } = await api.post(`/conversations/${conversationId}/messages`, messagePayload(text, options));
   return data.message;
+}
+
+export async function markConversationRead(conversationId, messageId) {
+  const { data } = await api.post(`/conversations/${conversationId}/read`, { messageId });
+  return data;
 }
 
 export async function editConversationMessage(conversationId, messageId, text) {

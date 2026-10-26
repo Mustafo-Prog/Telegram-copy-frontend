@@ -1,4 +1,5 @@
 import { api } from './http.js';
+import { messagePayload } from '../utils/messageContent.js';
 
 export async function getMessages() {
   const { data } = await api.get('/messages');
@@ -11,8 +12,8 @@ export async function getMessagesPage(before) {
   return { messages: data.messages, hasMore: Boolean(data.hasMore) };
 }
 
-export async function sendMessage(text) {
-  const { data } = await api.post('/messages', { text });
+export async function sendMessage(text, options) {
+  const { data } = await api.post('/messages', messagePayload(text, options));
   return data.message;
 }
 

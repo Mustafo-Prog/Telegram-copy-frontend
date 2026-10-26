@@ -16,6 +16,7 @@ import {
   editConversationMessage,
   getConversationMessages,
   openConversation,
+  markConversationRead,
   sendConversationMessage,
 } from '../api/conversationsApi.js';
 import { bulkDeleteGeneralMessages, editGeneralMessage, getMessagesPage, sendMessage } from '../api/messagesApi.js';
@@ -28,6 +29,7 @@ import {
   applyPagedDelete,
   applyPagedNew,
   applyPagedUpdate,
+  applyReadReceipt,
 } from '../realtime/events.js';
 import { setPresence, setPresenceMany } from '../realtime/presence.js';
 import {
@@ -110,7 +112,15 @@ export default function ChatPage() {
   const handleEvent = useCallback(
     (event, payload) => {
       if (event === 'presence:update') {
-        setPresence(payload.userId, payload.status);
+        setPresence(payload.userId, payload.status, payload.lastSeenAt);
+        return;
+      }
+
+      if (event === 'conversation:read') {
+        if (payload.userId !== user.id) {
+          queryClient.setQueryData(dmKey(payload.conversationId), (old) => applyReadReceipt(old, payload.messageId));
+        }
+        queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
         return;
       }
 
@@ -118,6 +128,7 @@ export default function ChatPage() {
         if (payload.scope === 'general') {
           queryClient.setQueryData(GENERAL_KEY, (old) => (old ? applyPagedNew(old, payload.message) : old));
           queryClient.setQueryData(PREVIEW_KEY, (list) => (list ? applyFlatNew(list, payload.message) : list));
+          if (payload.message.replyTo) queryClient.invalidateQueries({ queryKey: GENERAL_KEY });
           return;
         }
         queryClient.setQueryData(dmKey(payload.conversationId), (old) =>
@@ -127,6 +138,8 @@ export default function ChatPage() {
         const next = applyConversationPreview(list, payload.conversationId, payload.message);
         if (next === null) queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
         else if (Array.isArray(next)) queryClient.setQueryData(CONVERSATIONS_KEY, next);
+        queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
+        if (payload.message.replyTo) queryClient.invalidateQueries({ queryKey: dmKey(payload.conversationId) });
         return;
       }
 
@@ -140,6 +153,7 @@ export default function ChatPage() {
           );
           queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
         }
+        if (payload.message.replyTo) queryClient.invalidateQueries({ queryKey: payload.scope === 'general' ? GENERAL_KEY : dmKey(payload.conversationId) });
         return;
       }
 
@@ -170,7 +184,7 @@ export default function ChatPage() {
         }
       }
     },
-    [queryClient]
+    [queryClient, user.id]
   );
 
   // Обработчики держим в ref: соединение создаётся один раз, а актуальная логика — всегда свежая
@@ -182,10 +196,6 @@ export default function ChatPage() {
     queryClient.invalidateQueries({ queryKey: ['chat'] });
     queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
     queryClient.invalidateQueries({ queryKey: PREVIEW_KEY });
-    const current = activeRef.current;
-    if (current.type === 'direct' && current.conv.peer?.id) {
-      watchPresence([current.conv.peer.id], setPresenceMany);
-    }
   }, [queryClient]);
 
   useEffect(() => {
@@ -223,7 +233,9 @@ export default function ChatPage() {
     key: `dm-${conv.id}`,
     load: (before) => getConversationMessages(conv.id, before),
     scope: 'direct',
-    send: (text) => sendConversationMessage(conv.id, text),
+    send: (text, options) => sendConversationMessage(conv.id, text, options),
+    markRead: (messageId) => markConversationRead(conv.id, messageId),
+    peerLastReadMessageId: conv.peerLastReadMessageId,
     edit: (id, text) => editConversationMessage(conv.id, id, text),
     remove: (ids, mode) => bulkDeleteConversationMessages(conv.id, ids, mode),
     clear: (mode) => clearConversation(conv.id, mode),
@@ -236,6 +248,8 @@ export default function ChatPage() {
     title: conv.peer?.displayName ?? t('chat.deletedUser'),
     subtitle: conv.peer?.username ? `@${conv.peer.username}` : null,
     presenceUserId: conv.peer?.id,
+    presence: conv.peer?.presence,
+    lastSeenAt: conv.peer?.lastSeenAt,
     avatar: { name: conv.peer?.displayName, seed: conv.peer?.id, src: conv.peer?.avatarUrl },
     onHeaderClick: conv.peer ? () => setModal({ mode: 'other', profile: conv.peer }) : undefined,
   });

@@ -7,7 +7,18 @@ export function applyPagedNew(data, message) {
 }
 
 export function applyPagedUpdate(data, message) {
-  return mapPages(data, (list) => list.map((m) => (m.id === message.id ? message : m)));
+  return mapPages(data, (list) => list.map((m) => {
+    if (m.id === message.id) return message;
+    if (m.replyTo?.id === message.id && !m.replyTo.unavailable) return { ...m, replyTo: { ...m.replyTo, text: message.text, attachmentName: message.attachment?.name } };
+    return m;
+  }));
+}
+
+export function applyReadReceipt(data, messageId) {
+  if (!data) return data;
+  return { ...data, pages: data.pages.map((page) => ({ ...page,
+    peerLastReadMessageId: [page.peerLastReadMessageId, messageId].filter(Boolean).sort().at(-1),
+  })) };
 }
 
 export function applyPagedDelete(data, ids) {
@@ -35,7 +46,7 @@ export function applyConversationPreview(list, conversationId, message) {
   if (!list.some((c) => c.id === conversationId)) return null; // нет в списке — нужно перезагрузить список
   return list
     .map((c) =>
-      c.id === conversationId ? { ...c, lastMessageText: message.text, lastMessageAt: message.createdAt } : c
+      c.id === conversationId ? { ...c, lastMessageText: message.text || message.attachment?.name || '', lastMessageAt: message.createdAt } : c
     )
     .sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
 }

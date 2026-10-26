@@ -50,7 +50,9 @@ export function mapPages(data, fn) {
 
 export function removeMessages(data, ids) {
   const drop = new Set(ids);
-  return mapPages(data, (list) => list.filter((m) => !drop.has(m.id)));
+  return mapPages(data, (list) => list.filter((m) => !drop.has(m.id)).map((m) =>
+    drop.has(m.replyTo?.id) ? { ...m, replyTo: { id: m.replyTo.id, unavailable: true } } : m
+  ));
 }
 
 // Добавляет сообщение в самую новую страницу; заменяет временный и уже существующий с тем же id

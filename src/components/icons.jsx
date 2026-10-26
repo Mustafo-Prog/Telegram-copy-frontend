@@ -54,3 +54,11 @@ export function CheckCheckIcon(props) {
     </svg>
   );
 }
+
+export function CheckIcon(props) {
+  return <svg {...baseProps} width={16} height={16} {...props}><path d="m5 12 4 4L19 6" /></svg>;
+}
+
+export function PaperclipIcon(props) {
+  return <svg {...baseProps} {...props}><path d="m21 11-9 9a6 6 0 0 1-8.5-8.5l10-10a4 4 0 0 1 5.7 5.7L9 17.3a2 2 0 0 1-2.8-2.8l9-9" /></svg>;
+}

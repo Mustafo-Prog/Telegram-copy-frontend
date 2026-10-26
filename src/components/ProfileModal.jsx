@@ -6,6 +6,8 @@ import { getProfile, removeAvatar, updatePrivacy, updateProfile, uploadAvatar } 
 import PresenceLabel from './PresenceLabel.jsx';
 import Avatar from './Avatar.jsx';
 import { resizeAvatar } from '../utils/avatar.js';
+import { setPresenceMany } from '../realtime/presence.js';
+import { watchPresence, unwatchPresence } from '../realtime/socket.js';
 
 const USERNAME_PATTERN = '[a-z0-9_]{3,32}';
 
@@ -20,6 +22,11 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
     enabled: readOnly && Boolean(profile?.username),
   });
   const data = readOnly ? { ...profile, ...(fullProfile ?? {}) } : user;
+  useEffect(() => {
+    if (!readOnly || !data.id) return undefined;
+    watchPresence([data.id], setPresenceMany);
+    return () => unwatchPresence([data.id]);
+  }, [readOnly, data.id]);
   const fileRef = useRef(null);
 
   const [displayName, setDisplayName] = useState(data.displayName ?? '');
@@ -113,7 +120,7 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
             <div className="modal__username">{data.username ? `@${data.username}` : t('profile.noUsername')}</div>
             {data.id && (
               <div className="modal__presence">
-                <PresenceLabel userId={data.id} fallback={data.presence} />
+                <PresenceLabel userId={data.id} fallback={data.presence} lastSeenAt={data.lastSeenAt} />
               </div>
             )}
             <p className="modal__bio">{data.bio || t('profile.noBio')}</p>
