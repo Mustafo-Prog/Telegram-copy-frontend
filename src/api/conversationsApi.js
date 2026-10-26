@@ -6,6 +6,10 @@ export async function listConversations() {
   return data.conversations;
 }
 
+export const getConversation = async (id) => (await api.get(`/conversations/${id}`)).data.conversation;
+export const pinConversation = async (id, pinned) => (await api.patch(`/conversations/${id}/pin`, { pinned })).data.conversation;
+export const searchConversationMessages = async (id, q, before) => (await api.get(`/conversations/${id}/search`, { params: { q, ...(before ? { before } : {}) } })).data;
+
 // Открывает существующий личный диалог или создаёт новый
 export async function openConversation(userId) {
   const { data } = await api.post('/conversations', { userId });

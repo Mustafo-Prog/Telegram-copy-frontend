@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import Avatar from '../components/Avatar.jsx';
 import ChatList from '../components/ChatList.jsx';
@@ -8,6 +9,10 @@ import LanguageSwitcher from '../components/LanguageSwitcher.jsx';
 import ProfileModal from '../components/ProfileModal.jsx';
 import ThemeToggle from '../components/ThemeToggle.jsx';
 import UserSearch from '../components/UserSearch.jsx';
+import CreateGroupModal from '../components/CreateGroupModal.jsx';
+import GroupInfoModal from '../components/GroupInfoModal.jsx';
+import JoinGroupModal from '../components/JoinGroupModal.jsx';
+import NotificationSettings from '../components/NotificationSettings.jsx';
 import { LogoutIcon } from '../components/icons.jsx';
 import {
   bulkDeleteConversationMessages,
@@ -18,8 +23,12 @@ import {
   openConversation,
   markConversationRead,
   sendConversationMessage,
+  listConversations,
+  getConversation,
+  searchConversationMessages,
 } from '../api/conversationsApi.js';
-import { bulkDeleteGeneralMessages, editGeneralMessage, getMessagesPage, sendMessage } from '../api/messagesApi.js';
+import { bulkDeleteGeneralMessages, editGeneralMessage, getMessagesPage, sendMessage, markGeneralRead, searchGeneralMessages } from '../api/messagesApi.js';
+import { applyGeneralReadCursors, mergeGeneralReadCursors } from '../utils/generalReads.js';
 import { useI18n } from '../i18n/I18nProvider.jsx';
 import {
   applyConversationPreview,
@@ -30,6 +39,7 @@ import {
   applyPagedNew,
   applyPagedUpdate,
   applyReadReceipt,
+  applyGeneralReadReceipt,
 } from '../realtime/events.js';
 import { setPresence, setPresenceMany } from '../realtime/presence.js';
 import {
@@ -39,9 +49,13 @@ import {
   subscribeRealtimeStatus,
   unwatchPresence,
   watchPresence,
+  sendTyping,
 } from '../realtime/socket.js';
 import { useIsMobile } from '../utils/useIsMobile.js';
 import { useSwipeBack } from '../utils/useSwipeBack.js';
+import { setTypingEvent } from '../realtime/typing.js';
+import { notifyIncoming, subscribeNotificationClicks, clearUserNotifications } from '../notifications/manager.js';
+import { validChatId } from '../utils/notifications.js';
 
 const GENERAL_KEY = ['chat', 'general', 'messages'];
 const PREVIEW_KEY = ['messages'];
@@ -68,12 +82,16 @@ const REALTIME_TEXT = {
 };
 
 export default function ChatPage() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
   const mainRef = useRef(null);
   const realtimeStatus = useSyncExternalStore(subscribeRealtimeStatus, getRealtimeStatus);
+  const conversationsQuery = useQuery({ queryKey: CONVERSATIONS_KEY, queryFn: listConversations, staleTime: 15000,
+    refetchInterval: realtimeStatus === 'connected' ? false : 5000 });
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [notice, setNotice] = useState(null);
 
   // { type: 'general' } или { type: 'direct', conv }
   const [active, setActive] = useState({ type: 'general' });
@@ -82,6 +100,10 @@ export default function ChatPage() {
   const [chatOpen, setChatOpen] = useState(false);
   const closeModal = useCallback(() => setModal(null), []);
   const activeRef = useRef(active);
+  const generalReadCursorsRef = useRef([]);
+  const openByIdRef = useRef(null);
+  const viewRef = useRef(null);
+  viewRef.current = { isMobile, chatOpen };
   activeRef.current = active;
 
   // Открыть чат: на телефоне запоминаем шаг в истории, чтобы «назад» Android закрывал чат
@@ -98,6 +120,31 @@ export default function ChatPage() {
     else setChatOpen(false);
   }, []);
 
+  const openConversationData = useCallback((conv) => {
+    queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
+    setActive({ type: 'direct', conv }); setModal(null); openChat();
+  }, [queryClient, openChat]);
+  openByIdRef.current = async (id) => {
+    if (!validChatId(id)) return;
+    try {
+      if (id === 'general') { setActive({ type: 'general' }); openChat(); }
+      else openConversationData(queryClient.getQueryData(CONVERSATIONS_KEY)?.find((conv) => conv.id === id) ?? await getConversation(id));
+    } catch { setNotice(t('notifications.chatUnavailable')); }
+  };
+  useEffect(() => {
+    const unsubscribe = subscribeNotificationClicks((id) => openByIdRef.current?.(id));
+    return () => { unsubscribe(); clearUserNotifications(user.id); };
+  }, [user.id]);
+  const closeJoin = useCallback(() => setSearchParams((params) => { const next = new URLSearchParams(params); next.delete('join'); return next; }, { replace: true }), [setSearchParams]);
+  const openingParam = useRef(null);
+  useEffect(() => {
+    const id = searchParams.get('chat');
+    if (!id) { openingParam.current = null; return; }
+    if (openingParam.current === id) return;
+    openingParam.current = id;
+    Promise.resolve(openByIdRef.current?.(id)).finally(() => setSearchParams((params) => { const next = new URLSearchParams(params); next.delete('chat'); return next; }, { replace: true }));
+  }, [searchParams, setSearchParams]);
+
   useEffect(() => {
     const onPop = () => setChatOpen(isChatEntry());
     window.addEventListener('popstate', onPop);
@@ -111,6 +158,8 @@ export default function ChatPage() {
   // иначе скроется остальная история. Для списка диалогов без данных — перезагрузка.
   const handleEvent = useCallback(
     (event, payload) => {
+      if (event === 'typing:update') { if (payload.userId !== user.id) setTypingEvent(payload); return; }
+      if (event === 'preferences:changed') { updateUser((current) => ({ ...current, ...payload })); return; }
       if (event === 'presence:update') {
         setPresence(payload.userId, payload.status, payload.lastSeenAt);
         return;
@@ -124,10 +173,25 @@ export default function ChatPage() {
         return;
       }
 
+      if (event === 'general:read') {
+        generalReadCursorsRef.current = mergeGeneralReadCursors(generalReadCursorsRef.current, payload);
+        queryClient.setQueryData(GENERAL_KEY, (old) => applyGeneralReadReceipt(old, payload));
+        queryClient.setQueryData(PREVIEW_KEY, (old) => old ? applyGeneralReadCursors(old, [payload]) : old);
+        return;
+      }
+
       if (event === 'message:new') {
+        const chatId = payload.scope === 'general' ? 'general' : payload.conversationId;
+        const currentId = activeRef.current.type === 'general' ? 'general' : activeRef.current.conv.id;
+        const conversation = queryClient.getQueryData(CONVERSATIONS_KEY)?.find((conv) => conv.id === chatId);
+        notifyIncoming({ message: payload.message, userId: user.id, chatId, activeChatId: currentId,
+          chatVisible: !viewRef.current.isMobile || viewRef.current.chatOpen,
+          title: chatId === 'general' ? t('chat.groupName') : conversation?.kind === 'group' ? conversation.title : payload.conversationTitle || payload.message.senderName || t('chat.deletedUser'),
+          labels: { newMessage: t('notifications.newMessage'), voice: t('voice.message') }, onOpen: (id) => openByIdRef.current?.(id) });
         if (payload.scope === 'general') {
-          queryClient.setQueryData(GENERAL_KEY, (old) => (old ? applyPagedNew(old, payload.message) : old));
-          queryClient.setQueryData(PREVIEW_KEY, (list) => (list ? applyFlatNew(list, payload.message) : list));
+          const message = applyGeneralReadCursors([payload.message], generalReadCursorsRef.current)[0];
+          queryClient.setQueryData(GENERAL_KEY, (old) => (old ? applyPagedNew(old, message) : old));
+          queryClient.setQueryData(PREVIEW_KEY, (list) => (list ? applyFlatNew(list, message) : list));
           if (payload.message.replyTo) queryClient.invalidateQueries({ queryKey: GENERAL_KEY });
           return;
         }
@@ -172,10 +236,12 @@ export default function ChatPage() {
 
       if (event === 'chat:changed') {
         queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
+        queryClient.invalidateQueries({ queryKey: ['group', payload.conversationId] });
         if (payload.reason === 'cleared') {
           queryClient.resetQueries({ queryKey: dmKey(payload.conversationId) });
         }
-        if (payload.reason === 'deleted') {
+        if (payload.reason === 'deleted' || payload.reason === 'removed') {
+          setModal((current) => current?.mode === 'group' && current.groupId === payload.conversationId ? null : current);
           queryClient.removeQueries({ queryKey: dmKey(payload.conversationId) });
           const current = activeRef.current;
           if (current.type === 'direct' && current.conv.id === payload.conversationId) {
@@ -184,7 +250,7 @@ export default function ChatPage() {
         }
       }
     },
-    [queryClient, user.id]
+    [queryClient, user.id, updateUser, t]
   );
 
   // Обработчики держим в ref: соединение создаётся один раз, а актуальная логика — всегда свежая
@@ -218,9 +284,19 @@ export default function ChatPage() {
   const generalChat = useMemo(
     () => ({
       key: 'general',
-      load: (before) => getMessagesPage(before),
+      load: async (before) => {
+        const page = await getMessagesPage(before);
+        return { ...page, messages: applyGeneralReadCursors(page.messages, generalReadCursorsRef.current) };
+      },
       scope: 'general',
-      send: sendMessage,
+      typingKey: 'general',
+      onTyping: (active) => sendTyping({ scope: 'general' }, active),
+      search: searchGeneralMessages,
+      send: async (text, options) => {
+        const message = await sendMessage(text, options);
+        return applyGeneralReadCursors([message], generalReadCursorsRef.current)[0];
+      },
+      markRead: markGeneralRead,
       edit: (id, text) => editGeneralMessage(id, text),
       remove: (ids) => bulkDeleteGeneralMessages(ids),
       title: t('chat.groupName'),
@@ -232,7 +308,11 @@ export default function ChatPage() {
   const directChat = (conv) => ({
     key: `dm-${conv.id}`,
     load: (before) => getConversationMessages(conv.id, before),
-    scope: 'direct',
+    scope: conv.kind === 'group' ? 'group' : 'direct',
+    typingKey: conv.id,
+    onTyping: (active) => sendTyping({ scope: 'conversation', conversationId: conv.id }, active),
+    search: (q, before) => searchConversationMessages(conv.id, q, before),
+    canModerate: conv.ownerId === user.id || conv.adminIds?.includes(user.id),
     send: (text, options) => sendConversationMessage(conv.id, text, options),
     markRead: (messageId) => markConversationRead(conv.id, messageId),
     peerLastReadMessageId: conv.peerLastReadMessageId,
@@ -245,13 +325,13 @@ export default function ChatPage() {
       setActive({ type: 'general' });
       goBack();
     },
-    title: conv.peer?.displayName ?? t('chat.deletedUser'),
-    subtitle: conv.peer?.username ? `@${conv.peer.username}` : null,
+    title: conv.kind === 'group' ? conv.title : conv.peer?.displayName ?? t('chat.deletedUser'),
+    subtitle: conv.kind === 'group' ? t('groups.memberCount', { count: conv.memberCount }) : conv.peer?.username ? `@${conv.peer.username}` : null,
     presenceUserId: conv.peer?.id,
     presence: conv.peer?.presence,
     lastSeenAt: conv.peer?.lastSeenAt,
-    avatar: { name: conv.peer?.displayName, seed: conv.peer?.id, src: conv.peer?.avatarUrl },
-    onHeaderClick: conv.peer ? () => setModal({ mode: 'other', profile: conv.peer }) : undefined,
+    avatar: conv.kind === 'group' ? { name: conv.title, seed: conv.id } : { name: conv.peer?.displayName, seed: conv.peer?.id, src: conv.peer?.avatarUrl },
+    onHeaderClick: conv.kind === 'group' ? () => setModal({ mode: 'group', groupId: conv.id }) : conv.peer ? () => setModal({ mode: 'other', profile: conv.peer }) : undefined,
   });
 
   // Открывает (или создаёт) личный диалог с человеком из профиля
@@ -263,7 +343,8 @@ export default function ChatPage() {
     openChat();
   };
 
-  const chat = active.type === 'direct' ? directChat(active.conv) : generalChat;
+  const activeConversation = active.type === 'direct' ? conversationsQuery.data?.find((conv) => conv.id === active.conv.id) ?? active.conv : null;
+  const chat = activeConversation ? directChat(activeConversation) : generalChat;
   const activeKey = active.type === 'direct' ? active.conv.id : 'general';
   const statusText = REALTIME_TEXT[realtimeStatus] ? t(REALTIME_TEXT[realtimeStatus]) : null;
 
@@ -300,7 +381,13 @@ export default function ChatPage() {
           </div>
         )}
         <UserSearch onSelect={(profile) => setModal({ mode: 'other', profile })} />
+        <div className="sidebar__tools"><button type="button" className="btn-ghost btn-block" onClick={() => setModal({ mode: 'createGroup' })}><span aria-hidden="true">＋</span> {t('groups.create')}</button></div>
+        {notice && <div className="sidebar__notice" role="status">{notice}<button className="icon-btn" onClick={() => setNotice(null)} aria-label={t('profile.close')}>×</button></div>}
         <ChatList
+          conversations={conversationsQuery.data ?? []}
+          loading={conversationsQuery.isPending}
+          error={conversationsQuery.error}
+          onRetry={() => conversationsQuery.refetch()}
           activeKey={activeKey}
           onSelectGeneral={() => {
             setActive({ type: 'general' });
@@ -313,6 +400,7 @@ export default function ChatPage() {
         />
         <footer className="sidebar__footer">
           <LanguageSwitcher />
+          <NotificationSettings />
           <ThemeToggle />
         </footer>
       </aside>
@@ -327,6 +415,9 @@ export default function ChatPage() {
         />
       </main>
       {modal?.mode === 'own' && <ProfileModal onClose={closeModal} />}
+      {modal?.mode === 'createGroup' && <CreateGroupModal onClose={closeModal} onCreated={openConversationData} />}
+      {modal?.mode === 'group' && <GroupInfoModal groupId={modal.groupId} onClose={closeModal} onUpdated={(conv) => setActive({ type: 'direct', conv })} onRemoved={() => { setModal(null); setActive({ type: 'general' }); queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY }); }} />}
+      {searchParams.get('join') && <JoinGroupModal token={searchParams.get('join')} onClose={closeJoin} onJoined={(conv) => { closeJoin(); openConversationData(conv); }} />}
       {modal?.mode === 'other' && (
         <ProfileModal profile={modal.profile} readOnly onMessage={openDirect} onClose={closeModal} />
       )}

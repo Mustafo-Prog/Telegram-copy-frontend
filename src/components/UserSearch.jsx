@@ -6,16 +6,17 @@ import Avatar from './Avatar.jsx';
 
 const MIN_QUERY = 2;
 
-export default function UserSearch({ onSelect }) {
+export default function UserSearch({ onSelect, excludeIds = [] }) {
   const { t } = useI18n();
   const [input, setInput] = useState('');
   const query = input.trim().replace(/^@/, '').toLowerCase();
 
-  const { data: users = [], isFetching } = useQuery({
+  const { data: results = [], isFetching } = useQuery({
     queryKey: ['userSearch', query],
     queryFn: () => searchUsers(query),
     enabled: query.length >= MIN_QUERY,
   });
+  const users = results.filter((user) => !excludeIds.includes(user.id));
 
   return (
     <div className="user-search">

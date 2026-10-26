@@ -1,5 +1,7 @@
 import { api } from './http.js';
 
+export const pinGeneralChat = async (pinned) => (await api.patch('/users/me/general-pin', { pinned })).data.user;
+
 export async function updateProfile(data) {
   const { data: body } = await api.patch('/users/me', data);
   return body.user;

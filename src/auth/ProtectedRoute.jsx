@@ -1,4 +1,4 @@
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useI18n } from '../i18n/I18nProvider.jsx';
 import { useAuth } from './AuthProvider.jsx';
 
@@ -21,14 +21,18 @@ function Loading() {
 
 export function ProtectedRoute() {
   const { user, loading, sessionError, retrySession } = useAuth();
+  const location = useLocation();
   if (loading) return <Loading />;
   if (sessionError) return <SessionState error={sessionError} onRetry={retrySession} />;
-  return user ? <Outlet /> : <Navigate to="/login" replace />;
+  return user ? <Outlet /> : <Navigate to="/login" replace state={{ returnTo: `${location.pathname}${location.search}` }} />;
 }
 
 export function GuestRoute() {
   const { user, loading, sessionError, retrySession } = useAuth();
+  const location = useLocation();
+  const requested = location.state?.returnTo;
+  const returnTo = typeof requested === 'string' && requested.startsWith('/') && !requested.startsWith('//') && !requested.includes('\\') ? requested : '/';
   if (loading) return <Loading />;
   if (sessionError) return <SessionState error={sessionError} onRetry={retrySession} />;
-  return user ? <Navigate to="/" replace /> : <Outlet />;
+  return user ? <Navigate to={returnTo} replace /> : <Outlet />;
 }

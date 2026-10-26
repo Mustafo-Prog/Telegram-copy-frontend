@@ -62,3 +62,16 @@ export function CheckIcon(props) {
 export function PaperclipIcon(props) {
   return <svg {...baseProps} {...props}><path d="m21 11-9 9a6 6 0 0 1-8.5-8.5l10-10a4 4 0 0 1 5.7 5.7L9 17.3a2 2 0 0 1-2.8-2.8l9-9" /></svg>;
 }
+
+export function SearchIcon(props) {
+  return <svg {...baseProps} {...props}><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 5 5" /></svg>;
+}
+export function MicIcon(props) {
+  return <svg {...baseProps} {...props}><rect x="9" y="2" width="6" height="12" rx="3" /><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8" /></svg>;
+}
+export function PinIcon(props) {
+  return <svg {...baseProps} {...props}><path d="m16 3 5 5-4 1-4 5v4l-3-3-6 6 6-6-3-3h4l5-4z" /></svg>;
+}
+export function BellIcon(props) {
+  return <svg {...baseProps} {...props}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>;
+}

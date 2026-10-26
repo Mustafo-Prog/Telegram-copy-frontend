@@ -1,6 +1,8 @@
 import { api } from './http.js';
 import { messagePayload } from '../utils/messageContent.js';
 
+export const searchGeneralMessages = async (q, before) => (await api.get('/messages/search', { params: { q, ...(before ? { before } : {}) } })).data;
+
 export async function getMessages() {
   const { data } = await api.get('/messages');
   return data.messages;
@@ -15,6 +17,11 @@ export async function getMessagesPage(before) {
 export async function sendMessage(text, options) {
   const { data } = await api.post('/messages', messagePayload(text, options));
   return data.message;
+}
+
+export async function markGeneralRead(messageId) {
+  const { data } = await api.post('/messages/read', { messageId });
+  return data;
 }
 
 export async function editGeneralMessage(id, text) {

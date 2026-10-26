@@ -20,6 +20,9 @@ import PresenceLabel from './PresenceLabel.jsx';
 import { isRealtimeConnected } from '../realtime/socket.js';
 import { isReadByPeer } from '../utils/messageContent.js';
 import ChatEmptyState from './ChatEmptyState.jsx';
+import MessageSearchPanel from './MessageSearchPanel.jsx';
+import TypingLabel from './TypingLabel.jsx';
+import { SearchIcon } from './icons.jsx';
 
 const GROUP_GAP_MS = 5 * 60 * 1000;
 
@@ -76,7 +79,8 @@ function buildItems(messages) {
 export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, visible = true }) {
   const { t, tError, formatDay } = useI18n();
   const queryClient = useQueryClient();
-  const isDirect = chat.scope === 'direct';
+  const isDirect = chat.scope !== 'general';
+  const isGroup = chat.scope === 'group';
   const messagesKey = ['chat', chat.key, 'messages'];
 
   // Вся история — одним бесконечным запросом: страницы обновляются вместе при каждом опросе,
@@ -100,6 +104,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
 
   const [editing, setEditing] = useState(null); // { id, text }
   const [replying, setReplying] = useState(null);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [atBottom, setAtBottom] = useState(true);
   const [newMessageIds, setNewMessageIds] = useState(() => new Set());
   const [focused, setFocused] = useState(() => document.visibilityState === 'visible' && document.hasFocus());
@@ -159,8 +164,8 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
 
   // Отправка: сообщение видно сразу, затем заменяется настоящим
   const send = useMutation({
-    mutationFn: ({ text, file, replyTo }) => chat.send(text, { file, replyToId: replyTo?.id }),
-    onMutate: ({ text, file, replyTo }) => {
+    mutationFn: ({ text, file, replyTo, voiceDurationMs }) => chat.send(text, { file, replyToId: replyTo?.id, voiceDurationMs }),
+    onMutate: ({ text, file, replyTo, voiceDurationMs }) => {
       scrollRequestedRef.current = true;
       const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       setPending((list) => [
@@ -175,8 +180,9 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
           createdAt: new Date().toISOString(),
           pending: true,
           replyTo: replyTo ? { id: replyTo.id, senderName: replyTo.senderName, text: replyTo.text, attachmentName: replyTo.attachment?.name } : null,
-          attachment: file ? { name: file.name, contentType: file.type, size: file.size, blob: file } : null,
+          attachment: file ? { name: file.name, contentType: file.type, size: file.size, blob: file, kind: voiceDurationMs ? 'voice' : 'file', durationMs: voiceDurationMs ?? null } : null,
           file,
+          voiceDurationMs,
         },
       ]);
       return { tempId };
@@ -196,7 +202,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
 
   const retrySend = (message) => {
     setPending((list) => list.filter((m) => m.id !== message.id));
-    send.mutate({ text: message.text, file: message.file, replyTo: message.replyTo });
+    send.mutate({ text: message.text, file: message.file, replyTo: message.replyTo, voiceDurationMs: message.voiceDurationMs });
   };
   const discardSend = (message) => setPending((list) => list.filter((m) => m.id !== message.id));
 
@@ -420,7 +426,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
     }
   };
 
-  const submitInput = async (text, file) => {
+  const submitInput = async (text, file, voiceDurationMs) => {
     if (editing) {
       try {
         await edit.mutateAsync({ id: editing.id, text });
@@ -428,7 +434,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
         return true;
       } catch { return false; }
     } else {
-      send.mutate({ text, file, replyTo: replying });
+      send.mutate({ text, file, replyTo: replying, voiceDurationMs });
       setReplying(null);
       return true;
     }
@@ -447,7 +453,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
         danger: true,
         options: [
           { value: 'me', label: t('actions.deleteForMe') },
-          { value: 'everyone', label: t('actions.deleteForEveryone') },
+          ...(!isGroup || chat.canModerate || dialog.ids.every((id) => messages.some((m) => m.id === id && isOwn(m))) ? [{ value: 'everyone', label: t('actions.deleteForEveryone') }] : []),
         ],
       };
     }
@@ -459,7 +465,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
         danger: true,
         options: [
           { value: 'me', label: t('actions.onlyForMe') },
-          { value: 'both', label: t('actions.forBoth') },
+          ...(!isGroup || chat.canModerate ? [{ value: 'both', label: t(isGroup ? 'actions.forAll' : 'actions.forBoth') }] : []),
         ],
       };
     }
@@ -481,11 +487,13 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
       <div className="chat__headline">
         <div className="chat__name">{chat.title}</div>
         <div className="chat__status">
+          <TypingLabel channel={chat.typingKey} userId={currentUser.id}>
           {chat.presenceUserId ? (
             <PresenceLabel userId={chat.presenceUserId} fallback={chat.presence} lastSeenAt={chat.lastSeenAt} />
           ) : (
             chat.subtitle ?? t('chat.messageCount', { count: messages.length })
           )}
+          </TypingLabel>
         </div>
       </div>
     </>
@@ -524,6 +532,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
           ) : (
             headerBody
           )}
+          {chat.search && <button type="button" className="icon-btn chat__search-toggle" onClick={() => setSearchOpen((open) => !open)} aria-label={t('messageSearch.title')} aria-expanded={searchOpen}><SearchIcon /></button>}
           {isDirect && (
             <div className="chat__more">
               <button
@@ -548,7 +557,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
                   >
                     <span>{t('actions.clearHistory')}</span>
                   </button>
-                  <button
+                  {!isGroup && <button
                     type="button"
                     role="menuitem"
                     className="msg-menu__item msg-menu__item--danger"
@@ -558,13 +567,16 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
                     }}
                   >
                     <span>{t('actions.deleteChat')}</span>
-                  </button>
+                  </button>}
+                  {isGroup && <button type="button" role="menuitem" className="msg-menu__item" onClick={() => { setHeaderMenu(false); chat.onHeaderClick?.(); }}>{t('groups.info')}</button>}
                 </div>
               )}
             </div>
           )}
         </header>
       )}
+
+      {searchOpen && chat.search && <MessageSearchPanel chat={chat} onClose={() => setSearchOpen(false)} onJump={jumpToMessage} />}
 
       <div className="chat__messages" ref={scrollRef} onScroll={updateScrollPosition}>
         <div className="chat__content" ref={contentRef}>
@@ -602,7 +614,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
               onOpenMenu={(x, y) => setMenu({ message: item.message, x, y })}
               onRetry={() => retrySend(item.message)}
               onDiscard={() => discardSend(item.message)}
-              read={isDirect && isReadByPeer(item.message, readThroughId)}
+              read={isDirect ? isReadByPeer(item.message, readThroughId) : Boolean(item.message.readByOther)}
               onJumpToMessage={jumpToMessage}
             />
           )
@@ -620,7 +632,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
           {notice}
         </div>
       )}
-      {!selecting && <MessageInput onSend={submitInput} disabled={edit.isPending} editing={editing} onCancelEdit={() => setEditing(null)} replying={replying} onCancelReply={() => setReplying(null)} />}
+      {!selecting && <MessageInput onSend={submitInput} onTyping={chat.onTyping} disabled={edit.isPending} editing={editing} onCancelEdit={() => setEditing(null)} replying={replying} onCancelReply={() => setReplying(null)} />}
 
       {menu && (
         <MessageMenu

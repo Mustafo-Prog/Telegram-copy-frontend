@@ -3,6 +3,7 @@
 import { io } from 'socket.io-client';
 import { API_ORIGIN, TOKEN_KEY } from '../api/http.js';
 import { resetPresence } from './presence.js';
+import { resetTyping } from './typing.js';
 
 const ACTIVITY_THROTTLE_MS = 30 * 1000;
 
@@ -12,6 +13,7 @@ let hadConnection = false;
 let lastActivitySent = 0;
 let stopActivityTracking = null;
 const watchedUsers = new Map();
+const typingSent = new Map();
 const statusListeners = new Set();
 const handlers = { onReconnect: null, onEvent: null };
 
@@ -29,7 +31,7 @@ export function subscribeRealtimeStatus(fn) {
   return () => statusListeners.delete(fn);
 }
 
-const EVENTS = ['message:new', 'message:updated', 'message:deleted', 'chat:changed', 'presence:update', 'conversation:read'];
+const EVENTS = ['message:new', 'message:updated', 'message:deleted', 'chat:changed', 'presence:update', 'conversation:read', 'general:read', 'typing:update', 'preferences:changed'];
 
 // Подключение (однократно за сессию). Повторный вызов с тем же токеном ничего не делает.
 export function connectRealtime({ onReconnect, onEvent }) {
@@ -118,8 +120,18 @@ export function disconnectRealtime() {
   watchedUsers.clear();
   lastActivitySent = 0;
   resetPresence();
+  resetTyping(); typingSent.clear();
   hadConnection = false;
   setStatus('idle');
+}
+
+export function sendTyping(context, active) {
+  if (!socket?.connected) return;
+  const key = context.conversationId ?? 'general';
+  const now = Date.now();
+  if (active && now - (typingSent.get(key) ?? 0) < 1800) return;
+  if (active) typingSent.set(key, now); else typingSent.delete(key);
+  socket.emit('typing:set', { ...context, active });
 }
 
 // Активность для онлайн-статуса: сообщаем серверу не чаще раза в 30 секунд

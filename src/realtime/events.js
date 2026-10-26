@@ -1,5 +1,6 @@
 // Обновление кэша по событиям сервера. Чистые функции: без React и сети, поэтому их проверяют тесты.
-import { mapPages, upsertNewest, removeMessages } from '../utils/messageState.js';
+import { mapPages, upsertNewest, removeMessages, mergeMessage } from '../utils/messageState.js';
+import { applyGeneralReadCursors } from '../utils/generalReads.js';
 
 // Сообщение общего чата или личного диалога в страничном кэше
 export function applyPagedNew(data, message) {
@@ -8,10 +9,14 @@ export function applyPagedNew(data, message) {
 
 export function applyPagedUpdate(data, message) {
   return mapPages(data, (list) => list.map((m) => {
-    if (m.id === message.id) return message;
+    if (m.id === message.id) return mergeMessage(m, message);
     if (m.replyTo?.id === message.id && !m.replyTo.unavailable) return { ...m, replyTo: { ...m.replyTo, text: message.text, attachmentName: message.attachment?.name } };
     return m;
   }));
+}
+
+export function applyGeneralReadReceipt(data, receipt) {
+  return mapPages(data, (messages) => applyGeneralReadCursors(messages, [receipt]));
 }
 
 export function applyReadReceipt(data, messageId) {
@@ -32,7 +37,7 @@ export function applyFlatNew(list = [], message) {
 }
 
 export function applyFlatUpdate(list = [], message) {
-  return list.map((m) => (m.id === message.id ? message : m));
+  return list.map((m) => (m.id === message.id ? mergeMessage(m, message) : m));
 }
 
 export function applyFlatDelete(list = [], ids) {

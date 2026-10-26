@@ -1,104 +1,70 @@
-import { useEffect, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getMessages } from '../api/messagesApi.js';
-import { listConversations } from '../api/conversationsApi.js';
+import { pinConversation } from '../api/conversationsApi.js';
+import { pinGeneralChat } from '../api/usersApi.js';
+import { useAuth } from '../auth/AuthProvider.jsx';
 import { useI18n } from '../i18n/I18nProvider.jsx';
-import { setPresenceMany } from '../realtime/presence.js';
+import { setPresenceMany, usePresence } from '../realtime/presence.js';
 import { unwatchPresence, watchPresence, subscribeRealtimeStatus, getRealtimeStatus } from '../realtime/socket.js';
-import { usePresence } from '../realtime/presence.js';
+import { sortChats } from '../utils/chatList.js';
 import Avatar from './Avatar.jsx';
+import { PinIcon } from './icons.jsx';
 
-// Точка онлайн рядом с аватаром собеседника (только если статус видимый и онлайн)
 function PeerAvatar({ peer }) {
   const status = usePresence(peer?.id) ?? peer?.presence;
-  return (
-    <span className="chat-list__avatar">
-      <Avatar name={peer?.displayName} seed={peer?.id} size={48} src={peer?.avatarUrl} />
-      {status === 'online' && <span className="presence-dot presence-dot--list" aria-hidden="true" />}
-    </span>
-  );
+  return <span className="chat-list__avatar"><Avatar name={peer?.displayName} seed={peer?.id} size={48} src={peer?.avatarUrl} />
+    {status === 'online' && <span className="presence-dot presence-dot--list" aria-hidden="true" />}
+  </span>;
 }
 
-// Список без опроса: обновления приходят событиями; статусы собеседников — подпиской
-export default function ChatList({ activeKey, onSelectGeneral, onSelectConversation }) {
-  const { t, formatTime } = useI18n();
-  const realtimeStatus = useSyncExternalStore(subscribeRealtimeStatus, getRealtimeStatus);
-  const { data: messages = [] } = useQuery({
-    queryKey: ['messages'],
-    queryFn: getMessages,
-    staleTime: 60 * 1000,
-    refetchInterval: realtimeStatus === 'connected' ? false : 5000,
-  });
-  const { data: conversations = [] } = useQuery({
-    queryKey: ['conversations'],
-    queryFn: listConversations,
-    staleTime: 15 * 1000,
-    refetchInterval: realtimeStatus === 'connected' ? false : 5000,
-  });
-
-  const peerIds = useMemo(
-    () => conversations.map((c) => c.peer?.id).filter(Boolean),
-    [conversations]
-  );
+export default function ChatList({ activeKey, onSelectGeneral, onSelectConversation, conversations = [], loading, error: loadError, onRetry }) {
+  const { t, tError, formatTime } = useI18n();
+  const { user, updateUser } = useAuth();
+  const client = useQueryClient();
+  const status = useSyncExternalStore(subscribeRealtimeStatus, getRealtimeStatus);
+  const { data: messages = [] } = useQuery({ queryKey: ['messages'], queryFn: getMessages, staleTime: 60000, refetchInterval: status === 'connected' ? false : 5000 });
+  const [pinning, setPinning] = useState(false);
+  const [error, setError] = useState(null);
+  const peers = useMemo(() => conversations.map((conversation) => conversation.peer?.id).filter(Boolean), [conversations]);
   useEffect(() => {
-    if (!peerIds.length) return undefined;
-    watchPresence(peerIds, setPresenceMany);
-    return () => unwatchPresence(peerIds);
-  }, [peerIds.join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!peers.length) return undefined;
+    watchPresence(peers, setPresenceMany); return () => unwatchPresence(peers);
+  }, [peers.join(',')]);
 
-  const last = messages[messages.length - 1];
-  const groupName = t('chat.groupName');
-  const generalPreview = last
-    ? `${last.senderName ?? t('chat.deletedUser')}: ${last.text || last.attachment?.name || ''}`
-    : t('chat.noMessages');
+  const last = messages.at(-1);
+  const content = last?.text || (last?.attachment?.kind === 'voice' ? t('voice.message') : last?.attachment?.name) || '';
+  const general = { id: 'general', kind: 'general', title: t('chat.groupName'), pinnedAt: user.generalPinnedAt,
+    lastMessageAt: last?.createdAt, lastMessageText: last ? `${last.senderName ?? t('chat.deletedUser')}: ${content}` : t('chat.noMessages') };
+  const entries = sortChats([general, ...conversations]);
+  const pin = async (conversation) => {
+    if (pinning) return;
+    setPinning(true); setError(null);
+    try {
+      if (conversation.id === 'general') updateUser(await pinGeneralChat(!conversation.pinnedAt));
+      else { await pinConversation(conversation.id, !conversation.pinnedAt); await client.invalidateQueries({ queryKey: ['conversations'] }); }
+    } catch (err) { setError(tError(err)); }
+    finally { setPinning(false); }
+  };
 
-  return (
-    <ul className="chat-list">
-      <li>
-        <button
-          type="button"
-          className={`chat-list__item${activeKey === 'general' ? ' chat-list__item--active' : ''}`}
-          aria-current={activeKey === 'general' ? 'true' : undefined}
-          onClick={onSelectGeneral}
-        >
-          <Avatar name={groupName} seed="group" size={48} />
-          <div className="chat-list__body">
-            <div className="chat-list__top">
-              <span className="chat-list__name">{groupName}</span>
-              {last && <span className="chat-list__time">{formatTime(last.createdAt)}</span>}
-            </div>
-            <div className="chat-list__preview">{generalPreview}</div>
+  return <ul className="chat-list">
+    {loading && <li className="chat-list__hint">{t('common.loading')}</li>}
+    {(error || loadError) && <li className="chat-list__hint auth-error" role="alert">{error || tError(loadError)}{loadError && <button className="btn-link" onClick={onRetry}>{t('chat.retry')}</button>}</li>}
+    {entries.map((conversation) => {
+      const generalChat = conversation.kind === 'general';
+      const group = conversation.kind === 'group';
+      const title = generalChat || group ? conversation.title : conversation.peer?.displayName ?? t('chat.deletedUser');
+      const selected = activeKey === conversation.id;
+      const preview = conversation.lastMessageType === 'voice' ? t('voice.message') : conversation.lastMessageText || t('chat.noMessages');
+      return <li key={conversation.id} className={`chat-list__row${selected ? ' chat-list__row--active' : ''}`}>
+        <button type="button" className={`chat-list__item${selected ? ' chat-list__item--active' : ''}`} aria-current={selected ? 'true' : undefined} onClick={() => generalChat ? onSelectGeneral() : onSelectConversation(conversation)}>
+          {generalChat || group ? <Avatar name={title} seed={conversation.id} size={48} /> : <PeerAvatar peer={conversation.peer} />}
+          <div className="chat-list__body"><div className="chat-list__top"><span className="chat-list__name">{title}</span>{conversation.pinnedAt && <PinIcon className="chat-list__pinned-mark" width={12} height={12} />}{conversation.lastMessageAt && <span className="chat-list__time">{formatTime(conversation.lastMessageAt)}</span>}</div>
+            <div className="chat-list__bottom"><div className="chat-list__preview">{preview}</div>{conversation.unreadCount > 0 && <span className="chat-list__unread" aria-label={t('chat.unread', { count: conversation.unreadCount })}>{conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}</span>}</div>
           </div>
         </button>
-      </li>
-
-      {conversations.map((conv) => {
-        const peer = conv.peer;
-        const active = activeKey === conv.id;
-        return (
-          <li key={conv.id}>
-            <button
-              type="button"
-              className={`chat-list__item${active ? ' chat-list__item--active' : ''}`}
-              aria-current={active ? 'true' : undefined}
-              onClick={() => onSelectConversation(conv)}
-            >
-              <PeerAvatar peer={peer} />
-              <div className="chat-list__body">
-                <div className="chat-list__top">
-                  <span className="chat-list__name">{peer?.displayName ?? t('chat.deletedUser')}</span>
-                  <span className="chat-list__time">{formatTime(conv.lastMessageAt)}</span>
-                </div>
-                <div className="chat-list__bottom">
-                  <div className="chat-list__preview">{conv.lastMessageText || t('chat.noMessages')}</div>
-                  {conv.unreadCount > 0 && <span className="chat-list__unread" aria-label={t('chat.unread', { count: conv.unreadCount })}>{conv.unreadCount > 99 ? '99+' : conv.unreadCount}</span>}
-                </div>
-              </div>
-            </button>
-          </li>
-        );
-      })}
-    </ul>
-  );
+        <button type="button" className={`chat-list__pin icon-btn${conversation.pinnedAt ? ' chat-list__pin--on' : ''}`} disabled={pinning} onClick={() => pin(conversation)} aria-label={t(conversation.pinnedAt ? 'chats.unpin' : 'chats.pin', { title })} title={t(conversation.pinnedAt ? 'chats.unpin' : 'chats.pin', { title })}><PinIcon width={16} height={16} /></button>
+      </li>;
+    })}
+  </ul>;
 }

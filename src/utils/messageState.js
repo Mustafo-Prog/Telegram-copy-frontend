@@ -48,6 +48,13 @@ export function mapPages(data, fn) {
   return { ...data, pages: data.pages.map((page) => ({ ...page, messages: fn(page.messages) })) };
 }
 
+// A late HTTP response or edit event must not undo an already received read receipt.
+export function mergeMessage(previous, incoming) {
+  const message = { ...previous, ...incoming };
+  if (previous?.readByOther) message.readByOther = true;
+  return message;
+}
+
 export function removeMessages(data, ids) {
   const drop = new Set(ids);
   return mapPages(data, (list) => list.filter((m) => !drop.has(m.id)).map((m) =>
@@ -61,8 +68,10 @@ export function upsertNewest(data, message, replaceIds = []) {
   if (!data || !data.pages?.length) {
     return { pages: [{ messages: [message], hasMore: false }], pageParams: [undefined] };
   }
+  const previous = data.pages.flatMap((page) => page.messages).find((m) => m.id === message.id);
+  const merged = mergeMessage(previous, message);
   const cleaned = mapPages(data, (list) => list.filter((m) => !drop.has(m.id)));
   const [newest, ...older] = cleaned.pages;
-  const messages = [...newest.messages, message].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  const messages = [...newest.messages, merged].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   return { ...cleaned, pages: [{ ...newest, messages }, ...older] };
 }
