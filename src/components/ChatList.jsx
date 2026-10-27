@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getMessages } from '../api/messagesApi.js';
 import { pinConversation } from '../api/conversationsApi.js';
@@ -10,6 +10,7 @@ import { unwatchPresence, watchPresence, subscribeRealtimeStatus, getRealtimeSta
 import { sortChats } from '../utils/chatList.js';
 import Avatar from './Avatar.jsx';
 import { PinIcon } from './icons.jsx';
+import SavedAvatar from './SavedAvatar.jsx';
 
 function PeerAvatar({ peer }) {
   const status = usePresence(peer?.id) ?? peer?.presence;
@@ -24,7 +25,8 @@ export default function ChatList({ activeKey, onSelectGeneral, onSelectConversat
   const client = useQueryClient();
   const status = useSyncExternalStore(subscribeRealtimeStatus, getRealtimeStatus);
   const { data: messages = [] } = useQuery({ queryKey: ['messages'], queryFn: getMessages, staleTime: 60000, refetchInterval: status === 'connected' ? false : 5000 });
-  const [pinning, setPinning] = useState(false);
+  const pendingPins = useRef(new Map());
+  const [pinOverrides, setPinOverrides] = useState({});
   const [error, setError] = useState(null);
   const peers = useMemo(() => conversations.map((conversation) => conversation.peer?.id).filter(Boolean), [conversations]);
   useEffect(() => {
@@ -36,15 +38,31 @@ export default function ChatList({ activeKey, onSelectGeneral, onSelectConversat
   const content = last?.text || (last?.attachment?.kind === 'voice' ? t('voice.message') : last?.attachment?.name) || '';
   const general = { id: 'general', kind: 'general', title: t('chat.groupName'), pinnedAt: user.generalPinnedAt,
     lastMessageAt: last?.createdAt, lastMessageText: last ? `${last.senderName ?? t('chat.deletedUser')}: ${content}` : t('chat.noMessages') };
-  const entries = sortChats([general, ...conversations]);
+  const entries = sortChats([general, ...conversations].map((conversation) => Object.hasOwn(pinOverrides, conversation.id)
+    ? { ...conversation, pinnedAt: pinOverrides[conversation.id] } : conversation));
   const pin = async (conversation) => {
-    if (pinning) return;
-    setPinning(true); setError(null);
+    const id = conversation.id;
+    if (pendingPins.current.has(id)) return;
+    const previous = conversation.pinnedAt ?? null;
+    const pinnedAt = previous ? null : new Date().toISOString();
+    pendingPins.current.set(id, true);
+    setPinOverrides((current) => ({ ...current, [id]: pinnedAt }));
+    setError(null);
+    const patch = (value) => {
+      if (id === 'general') updateUser((current) => current?.id === user.id ? { ...current, generalPinnedAt: value } : current);
+      else client.setQueryData(['conversations'], (current) => current?.map((entry) => entry.id === id ? { ...entry, pinnedAt: value } : entry));
+    };
+    // Cancel an old list response before applying the local change; no refetch round trip.
+    if (id !== 'general') void client.cancelQueries({ queryKey: ['conversations'] });
+    patch(pinnedAt);
     try {
-      if (conversation.id === 'general') updateUser(await pinGeneralChat(!conversation.pinnedAt));
-      else { await pinConversation(conversation.id, !conversation.pinnedAt); await client.invalidateQueries({ queryKey: ['conversations'] }); }
-    } catch (err) { setError(tError(err)); }
-    finally { setPinning(false); }
+      const result = id === 'general' ? await pinGeneralChat(Boolean(pinnedAt)) : await pinConversation(id, Boolean(pinnedAt));
+      patch(id === 'general' ? result.generalPinnedAt : result.pinnedAt);
+    } catch (err) { patch(previous); setError(tError(err)); }
+    finally {
+      pendingPins.current.delete(id);
+      setPinOverrides((current) => { const next = { ...current }; delete next[id]; return next; });
+    }
   };
 
   return <ul className="chat-list">
@@ -53,17 +71,18 @@ export default function ChatList({ activeKey, onSelectGeneral, onSelectConversat
     {entries.map((conversation) => {
       const generalChat = conversation.kind === 'general';
       const group = conversation.kind === 'group';
-      const title = generalChat || group ? conversation.title : conversation.peer?.displayName ?? t('chat.deletedUser');
+      const saved = conversation.kind === 'saved';
+      const title = saved ? t('saved.title') : generalChat || group ? conversation.title : conversation.peer?.displayName ?? t('chat.deletedUser');
       const selected = activeKey === conversation.id;
       const preview = conversation.lastMessageType === 'voice' ? t('voice.message') : conversation.lastMessageText || t('chat.noMessages');
       return <li key={conversation.id} className={`chat-list__row${selected ? ' chat-list__row--active' : ''}`}>
         <button type="button" className={`chat-list__item${selected ? ' chat-list__item--active' : ''}`} aria-current={selected ? 'true' : undefined} onClick={() => generalChat ? onSelectGeneral() : onSelectConversation(conversation)}>
-          {generalChat || group ? <Avatar name={title} seed={conversation.id} size={48} /> : <PeerAvatar peer={conversation.peer} />}
+          {saved ? <SavedAvatar size={48} /> : generalChat || group ? <Avatar name={title} seed={conversation.id} size={48} /> : <PeerAvatar peer={conversation.peer} />}
           <div className="chat-list__body"><div className="chat-list__top"><span className="chat-list__name">{title}</span>{conversation.pinnedAt && <PinIcon className="chat-list__pinned-mark" width={12} height={12} />}{conversation.lastMessageAt && <span className="chat-list__time">{formatTime(conversation.lastMessageAt)}</span>}</div>
             <div className="chat-list__bottom"><div className="chat-list__preview">{preview}</div>{conversation.unreadCount > 0 && <span className="chat-list__unread" aria-label={t('chat.unread', { count: conversation.unreadCount })}>{conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}</span>}</div>
           </div>
         </button>
-        <button type="button" className={`chat-list__pin icon-btn${conversation.pinnedAt ? ' chat-list__pin--on' : ''}`} disabled={pinning} onClick={() => pin(conversation)} aria-label={t(conversation.pinnedAt ? 'chats.unpin' : 'chats.pin', { title })} title={t(conversation.pinnedAt ? 'chats.unpin' : 'chats.pin', { title })}><PinIcon width={16} height={16} /></button>
+        <button type="button" className={`chat-list__pin icon-btn${conversation.pinnedAt ? ' chat-list__pin--on' : ''}`} disabled={Object.hasOwn(pinOverrides, conversation.id)} onClick={() => pin(conversation)} aria-label={t(conversation.pinnedAt ? 'chats.unpin' : 'chats.pin', { title })} title={t(conversation.pinnedAt ? 'chats.unpin' : 'chats.pin', { title })}><PinIcon width={16} height={16} /></button>
       </li>;
     })}
   </ul>;

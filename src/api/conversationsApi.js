@@ -1,10 +1,13 @@
 import { api } from './http.js';
 import { messagePayload } from '../utils/messageContent.js';
 
-export async function listConversations() {
-  const { data } = await api.get('/conversations');
+export async function listConversations({ signal } = {}) {
+  const { data } = await api.get('/conversations', { signal });
   return data.conversations;
 }
+
+export const openSavedConversation = async () => (await api.post('/conversations/saved')).data.conversation;
+export const saveMessage = async (messageId) => (await api.post(`/conversations/saved/messages/${messageId}`)).data;
 
 export const getConversation = async (id) => (await api.get(`/conversations/${id}`)).data.conversation;
 export const pinConversation = async (id, pinned) => (await api.patch(`/conversations/${id}/pin`, { pinned })).data.conversation;

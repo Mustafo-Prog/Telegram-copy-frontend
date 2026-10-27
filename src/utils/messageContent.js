@@ -1,10 +1,11 @@
 export const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 
-export function messagePayload(text, { file = null, replyToId = null, voiceDurationMs = null } = {}) {
-  if (!file) return { text, ...(replyToId ? { replyToId } : {}) };
+export function messagePayload(text, { file = null, replyToId = null, voiceDurationMs = null, clientMessageId = null } = {}) {
+  if (!file) return { text, ...(replyToId ? { replyToId } : {}), ...(clientMessageId ? { clientMessageId } : {}) };
   const form = new FormData();
   form.append('text', text);
   if (replyToId) form.append('replyToId', replyToId);
+  if (clientMessageId) form.append('clientMessageId', clientMessageId);
   if (voiceDurationMs !== null && voiceDurationMs !== undefined) form.append('voiceDurationMs', String(voiceDurationMs));
   form.append('attachment', file);
   return form;

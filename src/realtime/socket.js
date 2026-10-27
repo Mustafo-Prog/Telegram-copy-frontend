@@ -46,6 +46,7 @@ export function connectRealtime({ onReconnect, onEvent }) {
   socket = io(API_ORIGIN, {
     auth: { token },
     transports: ['websocket', 'polling'],
+    tryAllTransports: true,
     reconnection: true,
     reconnectionDelay: 1000,
     reconnectionDelayMax: 15000,

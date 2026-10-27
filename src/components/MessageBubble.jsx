@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useI18n } from '../i18n/I18nProvider.jsx';
 import { hueFromSeed } from '../utils/hue.js';
 import Avatar from './Avatar.jsx';
-import { CheckCheckIcon, CheckIcon } from './icons.jsx';
+import { BookmarkIcon, CheckCheckIcon, CheckIcon } from './icons.jsx';
 import MessageAttachment from './MessageAttachment.jsx';
 
 const LONG_PRESS_MS = 450;
@@ -22,6 +22,8 @@ export default function MessageBubble({
   onDiscard,
   read = false,
   onJumpToMessage,
+  onSave,
+  hideReceipt = false,
 }) {
   const { t, formatTime } = useI18n();
   const author = message.senderName ?? t('chat.deletedUser');
@@ -137,6 +139,7 @@ export default function MessageBubble({
           ) : (
             <div className="bubble__author">{author}</div>
           ))}
+        {message.savedFrom && <div className="saved-message-source">{t('saved.from', { name: message.savedFrom.senderName || t('chat.deletedUser') })}</div>}
         {message.replyTo && <button type="button" className="bubble__reply" onClick={(e) => {
           e.stopPropagation(); onJumpToMessage?.(message.replyTo.id);
         }} disabled={message.replyTo.unavailable}>
@@ -148,7 +151,7 @@ export default function MessageBubble({
         <div className="bubble__meta">
           {message.editedAt && <span className="bubble__edited">{t('chat.edited')}</span>}
           <span>{message.pending ? '…' : formatTime(message.createdAt)}</span>
-          {isOwn && !message.pending && <span className="bubble__receipt" role="img" aria-label={t(read ? 'chat.read' : 'chat.sent')} title={t(read ? 'chat.read' : 'chat.sent')}>
+          {isOwn && !message.pending && !hideReceipt && <span className="bubble__receipt" role="img" aria-label={t(read ? 'chat.read' : 'chat.sent')} title={t(read ? 'chat.read' : 'chat.sent')}>
             {read ? <CheckCheckIcon className="bubble__ticks" /> : <CheckIcon className="bubble__ticks" />}
           </span>}
         </div>
@@ -164,6 +167,7 @@ export default function MessageBubble({
           </div>
         )}
       </div>
+      {onSave && !message.pending && !selecting && <button type="button" className="bubble-row__save icon-btn" onClick={onSave} aria-label={t('saved.save')} title={t('saved.save')}><BookmarkIcon width={17} height={17} /></button>}
     </div>
   );
 }

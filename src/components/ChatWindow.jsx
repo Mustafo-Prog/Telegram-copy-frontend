@@ -19,12 +19,15 @@ import MessageMenu from './MessageMenu.jsx';
 import PresenceLabel from './PresenceLabel.jsx';
 import { isRealtimeConnected } from '../realtime/socket.js';
 import { isReadByPeer } from '../utils/messageContent.js';
+import { applyConversationPreview, applyConversationRead, applyFlatNew } from '../realtime/events.js';
 import ChatEmptyState from './ChatEmptyState.jsx';
 import MessageSearchPanel from './MessageSearchPanel.jsx';
 import TypingLabel from './TypingLabel.jsx';
 import { SearchIcon } from './icons.jsx';
+import SavedAvatar from './SavedAvatar.jsx';
 
 const GROUP_GAP_MS = 5 * 60 * 1000;
+const newClientMessageId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 // Скелетон первой загрузки: вместо пустого экрана
 function ChatSkeleton() {
@@ -76,11 +79,12 @@ function buildItems(messages) {
 
 // chat — переписка: общий чат или личный диалог (см. ChatPage).
 // Компонент пересоздаётся через key при смене чата, поэтому выделение и состояние не смешиваются.
-export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, visible = true }) {
+export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, onSaveMessage, visible = true }) {
   const { t, tError, formatDay } = useI18n();
   const queryClient = useQueryClient();
   const isDirect = chat.scope !== 'general';
   const isGroup = chat.scope === 'group';
+  const isSaved = chat.scope === 'saved';
   const messagesKey = ['chat', chat.key, 'messages'];
 
   // Вся история — одним бесконечным запросом: страницы обновляются вместе при каждом опросе,
@@ -98,7 +102,11 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
 
   // Отправляемые сообщения живут отдельно, чтобы их не стёр опрос
   const [pending, setPending] = useState([]);
-  const messages = useMemo(() => [...flattenPages(data?.pages), ...pending], [data, pending]);
+  const messages = useMemo(() => {
+    const confirmed = flattenPages(data?.pages);
+    const acknowledged = new Set(confirmed.filter((message) => message.senderId === currentUser.id).map((message) => message.clientMessageId).filter(Boolean));
+    return [...confirmed, ...pending.filter((message) => !acknowledged.has(message.clientMessageId))];
+  }, [data, pending, currentUser.id]);
   const items = useMemo(() => buildItems(messages), [messages]);
   const lastId = messages.length ? messages[messages.length - 1].id : null;
 
@@ -123,6 +131,9 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
   const scrollRequestedRef = useRef(false);
   const prependRef = useRef(null);
   const readAckRef = useRef(null);
+  const readsInFlight = useRef(new Set());
+  const markReadRef = useRef(chat.markRead);
+  markReadRef.current = chat.markRead;
   const mountedRef = useRef(true);
   const jumpingRef = useRef(false);
   const hasScrolledRef = useRef(false);
@@ -145,16 +156,19 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
 
   // Only the foreground chat at its latest messages can acknowledge a read.
   useEffect(() => {
-    if (!chat.markRead || !visible || !focused || !atBottom || !lastServerId || (readAckRef.current && readAckRef.current >= lastServerId)) return undefined;
-    const timer = setTimeout(async () => {
+    if (!markReadRef.current || !visible || !focused || !atBottom || !lastServerId || readsInFlight.current.has(lastServerId) || (readAckRef.current && readAckRef.current >= lastServerId)) return;
+    readsInFlight.current.add(lastServerId);
+    (async () => {
       try {
-        await chat.markRead(lastServerId);
+        await markReadRef.current(lastServerId);
         if (!readAckRef.current || lastServerId > readAckRef.current) readAckRef.current = lastServerId;
-        queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        if (chat.conversationId) queryClient.setQueryData(['conversations'], (list) => applyConversationRead(list, chat.conversationId, {
+          userId: currentUser.id, currentUserId: currentUser.id, messageId: lastServerId,
+        }));
       } catch { /* Retry on refetch, focus or the next message; do not claim a read locally. */ }
-    }, 200);
-    return () => clearTimeout(timer);
-  }, [lastServerId, visible, focused, atBottom, chat.markRead, data]);
+      finally { readsInFlight.current.delete(lastServerId); }
+    })();
+  }, [lastServerId, visible, focused, atBottom, data, chat.conversationId, currentUser.id, queryClient]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -164,8 +178,8 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
 
   // Отправка: сообщение видно сразу, затем заменяется настоящим
   const send = useMutation({
-    mutationFn: ({ text, file, replyTo, voiceDurationMs }) => chat.send(text, { file, replyToId: replyTo?.id, voiceDurationMs }),
-    onMutate: ({ text, file, replyTo, voiceDurationMs }) => {
+    mutationFn: ({ text, file, replyTo, voiceDurationMs, clientMessageId }) => chat.send(text, { file, replyToId: replyTo?.id, voiceDurationMs, clientMessageId }),
+    onMutate: ({ text, file, replyTo, voiceDurationMs, clientMessageId }) => {
       scrollRequestedRef.current = true;
       const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
       setPending((list) => [
@@ -179,6 +193,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
           text,
           createdAt: new Date().toISOString(),
           pending: true,
+          clientMessageId,
           replyTo: replyTo ? { id: replyTo.id, senderName: replyTo.senderName, text: replyTo.text, attachmentName: replyTo.attachment?.name } : null,
           attachment: file ? { name: file.name, contentType: file.type, size: file.size, blob: file, kind: voiceDurationMs ? 'voice' : 'file', durationMs: voiceDurationMs ?? null } : null,
           file,
@@ -190,10 +205,16 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
     onSuccess: (message, _text, context) => {
       setPending((list) => list.filter((m) => m.id !== context.tempId));
       queryClient.setQueryData(messagesKey, (old) => upsertNewest(old, message, [context.tempId]));
-      queryClient.invalidateQueries({ queryKey: ['conversations'] });
-      queryClient.invalidateQueries({ queryKey: ['messages'] });
+      if (chat.conversationId) {
+        const list = queryClient.getQueryData(['conversations']);
+        const next = applyConversationPreview(list, chat.conversationId, message, currentUser.id);
+        if (next === null || !list) queryClient.invalidateQueries({ queryKey: ['conversations'] });
+        else queryClient.setQueryData(['conversations'], next);
+      } else queryClient.setQueryData(['messages'], (list) => list ? applyFlatNew(list, message) : list);
     },
     onError: (error, _text, context) => {
+      const delivered = flattenPages(queryClient.getQueryData(messagesKey)?.pages).some((message) => message.senderId === currentUser.id && message.clientMessageId === _text.clientMessageId);
+      if (delivered) { setPending((list) => list.filter((message) => message.id !== context?.tempId)); return; }
       // Не отправилось: остается на экране с кнопками «Повторить» и «Отменить»
       setPending((list) => list.map((m) => (m.id === context?.tempId ? { ...m, failed: true } : m)));
       setNotice(tError(error));
@@ -202,7 +223,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
 
   const retrySend = (message) => {
     setPending((list) => list.filter((m) => m.id !== message.id));
-    send.mutate({ text: message.text, file: message.file, replyTo: message.replyTo, voiceDurationMs: message.voiceDurationMs });
+    send.mutate({ text: message.text, file: message.file, replyTo: message.replyTo, voiceDurationMs: message.voiceDurationMs, clientMessageId: newClientMessageId() });
   };
   const discardSend = (message) => setPending((list) => list.filter((m) => m.id !== message.id));
 
@@ -377,9 +398,18 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
   const isOwn = (m) => m.senderId === currentUser.id;
   const canEdit = (m) => isOwn(m) && !m.pending;
   const canDelete = (m) => canDeleteMessage(m, { isDirect, userId: currentUser.id });
+  const savingIds = useRef(new Set());
+  const saveToFavorites = async (message) => {
+    if (!onSaveMessage || savingIds.current.has(message.id)) return;
+    savingIds.current.add(message.id);
+    try { await onSaveMessage(message.id); setNotice(t('saved.done')); }
+    catch (error) { setNotice(tError(error)); }
+    finally { savingIds.current.delete(message.id); }
+  };
 
   const menuItems = (m) => {
     const items = [{ key: 'reply', label: t('actions.reply') }];
+    if (onSaveMessage && !isSaved) items.push({ key: 'save', label: t('saved.save') });
     if (m.text) items.push({ key: 'copy', label: t('actions.copy') });
     if (canEdit(m)) items.push({ key: 'edit', label: t('actions.edit') });
     items.push({ key: 'select', label: t('actions.select') });
@@ -398,6 +428,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
     }
     if (key === 'edit') { setReplying(null); setEditing({ id: message.id, text: message.text, attachment: message.attachment }); }
     if (key === 'reply') { setEditing(null); setReplying(message); }
+    if (key === 'save') void saveToFavorites(message);
     if (key === 'select') startSelect(message.id);
     if (key === 'delete') setDialog({ kind: 'delete', ids: [message.id] });
   };
@@ -409,13 +440,13 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
     if (!current) return;
 
     if (current.kind === 'delete') {
-      await removeMany(current.ids, isDirect ? mode : 'everyone');
+      await removeMany(current.ids, isSaved || !isDirect ? 'everyone' : mode);
       exitSelect();
       return;
     }
     try {
       if (current.kind === 'clear') {
-        await chat.clear(mode);
+        await chat.clear(isSaved ? 'both' : mode);
         queryClient.resetQueries({ queryKey: messagesKey });
       }
       if (current.kind === 'deleteChat') {
@@ -434,7 +465,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
         return true;
       } catch { return false; }
     } else {
-      send.mutate({ text, file, replyTo: replying, voiceDurationMs });
+      send.mutate({ text, file, replyTo: replying, voiceDurationMs, clientMessageId: newClientMessageId() });
       setReplying(null);
       return true;
     }
@@ -444,8 +475,8 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
     if (!dialog) return null;
     if (dialog.kind === 'delete') {
       const title = t('actions.deleteTitle', { count: dialog.ids.length });
-      if (!isDirect) {
-        return { title, text: t('actions.deleteGeneralText'), confirmLabel: t('actions.delete'), danger: true, options: [] };
+      if (!isDirect || isSaved) {
+        return { title, text: isSaved ? undefined : t('actions.deleteGeneralText'), confirmLabel: t('actions.delete'), danger: true, options: [] };
       }
       return {
         title,
@@ -463,9 +494,9 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
         text: t('actions.clearText'),
         confirmLabel: t('actions.clear'),
         danger: true,
-        options: [
+        options: isSaved ? [] : [
           { value: 'me', label: t('actions.onlyForMe') },
-          ...(!isGroup || chat.canModerate ? [{ value: 'both', label: t(isGroup ? 'actions.forAll' : 'actions.forBoth') }] : []),
+          ...(!isSaved && (!isGroup || chat.canModerate) ? [{ value: 'both', label: t(isGroup ? 'actions.forAll' : 'actions.forBoth') }] : []),
         ],
       };
     }
@@ -483,7 +514,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
 
   const headerBody = (
     <>
-      <Avatar name={chat.avatar.name} seed={chat.avatar.seed} size={42} src={chat.avatar.src} />
+      {isSaved ? <SavedAvatar size={42} /> : <Avatar name={chat.avatar.name} seed={chat.avatar.seed} size={42} src={chat.avatar.src} />}
       <div className="chat__headline">
         <div className="chat__name">{chat.title}</div>
         <div className="chat__status">
@@ -557,7 +588,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
                   >
                     <span>{t('actions.clearHistory')}</span>
                   </button>
-                  {!isGroup && <button
+                  {!isGroup && !isSaved && <button
                     type="button"
                     role="menuitem"
                     className="msg-menu__item msg-menu__item--danger"
@@ -593,7 +624,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
         {isLoading && <ChatSkeleton />}
         {isError && <div className="chat__hint chat__hint--error">{t('chat.loadFailed')}</div>}
         {!isLoading && !isError && messages.length === 0 && (
-          <ChatEmptyState />
+          <ChatEmptyState saved={isSaved} />
         )}
         {items.map((item) =>
           item.type === 'day' ? (
@@ -616,6 +647,8 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, v
               onDiscard={() => discardSend(item.message)}
               read={isDirect ? isReadByPeer(item.message, readThroughId) : Boolean(item.message.readByOther)}
               onJumpToMessage={jumpToMessage}
+              onSave={onSaveMessage && !isSaved ? () => saveToFavorites(item.message) : undefined}
+              hideReceipt={isSaved}
             />
           )
         )}

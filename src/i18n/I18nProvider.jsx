@@ -4,6 +4,7 @@ import en from './locales/en.js';
 import uz from './locales/uz.js';
 import * as extras from './locales/chatExtras.js';
 import * as roadmap from './locales/roadmap.js';
+import * as saved from './locales/saved.js';
 
 const STORAGE_KEY = 'tg_lang';
 const DEFAULT_LANG = 'ru';
@@ -14,7 +15,7 @@ export const LANGUAGES = [
   { code: 'uz', label: 'UZ', name: 'Oʻzbekcha', locale: 'uz-UZ' },
 ];
 
-const DICTIONARIES = { ru: { ...ru, ...extras.ru, ...roadmap.ru }, en: { ...en, ...extras.en, ...roadmap.en }, uz: { ...uz, ...extras.uz, ...roadmap.uz } };
+const DICTIONARIES = { ru: { ...ru, ...extras.ru, ...roadmap.ru, ...saved.ru }, en: { ...en, ...extras.en, ...roadmap.en, ...saved.en }, uz: { ...uz, ...extras.uz, ...roadmap.uz, ...saved.uz } };
 
 function detectLanguage() {
   try {

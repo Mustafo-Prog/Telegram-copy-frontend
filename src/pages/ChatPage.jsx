@@ -13,7 +13,7 @@ import CreateGroupModal from '../components/CreateGroupModal.jsx';
 import GroupInfoModal from '../components/GroupInfoModal.jsx';
 import JoinGroupModal from '../components/JoinGroupModal.jsx';
 import NotificationSettings from '../components/NotificationSettings.jsx';
-import { LogoutIcon } from '../components/icons.jsx';
+import { BookmarkIcon, LogoutIcon } from '../components/icons.jsx';
 import {
   bulkDeleteConversationMessages,
   clearConversation,
@@ -26,6 +26,8 @@ import {
   listConversations,
   getConversation,
   searchConversationMessages,
+  openSavedConversation,
+  saveMessage,
 } from '../api/conversationsApi.js';
 import { bulkDeleteGeneralMessages, editGeneralMessage, getMessagesPage, sendMessage, markGeneralRead, searchGeneralMessages } from '../api/messagesApi.js';
 import { applyGeneralReadCursors, mergeGeneralReadCursors } from '../utils/generalReads.js';
@@ -40,6 +42,7 @@ import {
   applyPagedUpdate,
   applyReadReceipt,
   applyGeneralReadReceipt,
+  applyConversationRead,
 } from '../realtime/events.js';
 import { setPresence, setPresenceMany } from '../realtime/presence.js';
 import {
@@ -92,6 +95,8 @@ export default function ChatPage() {
     refetchInterval: realtimeStatus === 'connected' ? false : 5000 });
   const [searchParams, setSearchParams] = useSearchParams();
   const [notice, setNotice] = useState(null);
+  const [openingSaved, setOpeningSaved] = useState(false);
+  const savedRequestRef = useRef(null);
 
   // { type: 'general' } или { type: 'direct', conv }
   const [active, setActive] = useState({ type: 'general' });
@@ -121,7 +126,7 @@ export default function ChatPage() {
   }, []);
 
   const openConversationData = useCallback((conv) => {
-    queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
+    queryClient.setQueryData(CONVERSATIONS_KEY, (list = []) => [conv, ...list.filter((entry) => entry.id !== conv.id)]);
     setActive({ type: 'direct', conv }); setModal(null); openChat();
   }, [queryClient, openChat]);
   openByIdRef.current = async (id) => {
@@ -169,7 +174,9 @@ export default function ChatPage() {
         if (payload.userId !== user.id) {
           queryClient.setQueryData(dmKey(payload.conversationId), (old) => applyReadReceipt(old, payload.messageId));
         }
-        queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
+        queryClient.setQueryData(CONVERSATIONS_KEY, (list) => applyConversationRead(list, payload.conversationId, {
+          userId: payload.userId, currentUserId: user.id, messageId: payload.messageId,
+        }));
         return;
       }
 
@@ -199,10 +206,11 @@ export default function ChatPage() {
           old ? applyPagedNew(old, payload.message) : old
         );
         const list = queryClient.getQueryData(CONVERSATIONS_KEY);
-        const next = applyConversationPreview(list, payload.conversationId, payload.message);
-        if (next === null) queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
+        const previous = list?.find((entry) => entry.id === payload.conversationId);
+        const outOfOrder = payload.message.senderId !== user.id && previous?.lastMessageId && payload.message.id < previous.lastMessageId;
+        const next = applyConversationPreview(list, payload.conversationId, payload.message, user.id);
+        if (next === null || !list || outOfOrder) queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
         else if (Array.isArray(next)) queryClient.setQueryData(CONVERSATIONS_KEY, next);
-        queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
         if (payload.message.replyTo) queryClient.invalidateQueries({ queryKey: dmKey(payload.conversationId) });
         return;
       }
@@ -235,6 +243,10 @@ export default function ChatPage() {
       }
 
       if (event === 'chat:changed') {
+        if (payload.reason === 'pin' && Object.hasOwn(payload, 'pinnedAt')) {
+          queryClient.setQueryData(CONVERSATIONS_KEY, (list) => list?.map((entry) => entry.id === payload.conversationId ? { ...entry, pinnedAt: payload.pinnedAt } : entry));
+          return;
+        }
         queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
         queryClient.invalidateQueries({ queryKey: ['group', payload.conversationId] });
         if (payload.reason === 'cleared') {
@@ -300,7 +312,7 @@ export default function ChatPage() {
       edit: (id, text) => editGeneralMessage(id, text),
       remove: (ids) => bulkDeleteGeneralMessages(ids),
       title: t('chat.groupName'),
-      avatar: { name: t('chat.groupName'), seed: 'group' },
+      avatar: { name: t('chat.groupName'), seed: 'general' },
     }),
     [t]
   );
@@ -308,13 +320,14 @@ export default function ChatPage() {
   const directChat = (conv) => ({
     key: `dm-${conv.id}`,
     load: (before) => getConversationMessages(conv.id, before),
-    scope: conv.kind === 'group' ? 'group' : 'direct',
+    scope: conv.kind === 'saved' ? 'saved' : conv.kind === 'group' ? 'group' : 'direct',
     typingKey: conv.id,
-    onTyping: (active) => sendTyping({ scope: 'conversation', conversationId: conv.id }, active),
+    onTyping: conv.kind === 'saved' ? undefined : (active) => sendTyping({ scope: 'conversation', conversationId: conv.id }, active),
     search: (q, before) => searchConversationMessages(conv.id, q, before),
     canModerate: conv.ownerId === user.id || conv.adminIds?.includes(user.id),
     send: (text, options) => sendConversationMessage(conv.id, text, options),
-    markRead: (messageId) => markConversationRead(conv.id, messageId),
+    markRead: conv.kind === 'saved' ? undefined : (messageId) => markConversationRead(conv.id, messageId),
+    conversationId: conv.id,
     peerLastReadMessageId: conv.peerLastReadMessageId,
     edit: (id, text) => editConversationMessage(conv.id, id, text),
     remove: (ids, mode) => bulkDeleteConversationMessages(conv.id, ids, mode),
@@ -325,8 +338,8 @@ export default function ChatPage() {
       setActive({ type: 'general' });
       goBack();
     },
-    title: conv.kind === 'group' ? conv.title : conv.peer?.displayName ?? t('chat.deletedUser'),
-    subtitle: conv.kind === 'group' ? t('groups.memberCount', { count: conv.memberCount }) : conv.peer?.username ? `@${conv.peer.username}` : null,
+    title: conv.kind === 'saved' ? t('saved.title') : conv.kind === 'group' ? conv.title : conv.peer?.displayName ?? t('chat.deletedUser'),
+    subtitle: conv.kind === 'saved' ? t('saved.subtitle') : conv.kind === 'group' ? t('groups.memberCount', { count: conv.memberCount }) : conv.peer?.username ? `@${conv.peer.username}` : null,
     presenceUserId: conv.peer?.id,
     presence: conv.peer?.presence,
     lastSeenAt: conv.peer?.lastSeenAt,
@@ -337,10 +350,25 @@ export default function ChatPage() {
   // Открывает (или создаёт) личный диалог с человеком из профиля
   const openDirect = async (peer) => {
     const conv = await openConversation(peer.id);
-    queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
-    setActive({ type: 'direct', conv });
-    setModal(null);
-    openChat();
+    openConversationData(conv);
+  };
+
+  const openSaved = async () => {
+    const existing = queryClient.getQueryData(CONVERSATIONS_KEY)?.find((conv) => conv.kind === 'saved');
+    if (existing) { setActive({ type: 'direct', conv: existing }); openChat(); return; }
+    if (savedRequestRef.current) return;
+    setOpeningSaved(true);
+    const request = openSavedConversation(); savedRequestRef.current = request;
+    try { openConversationData(await request); }
+    catch (error) { setNotice(t('chat.loadFailed')); }
+    finally { savedRequestRef.current = null; setOpeningSaved(false); }
+  };
+
+  const saveToFavorites = async (messageId) => {
+    const result = await saveMessage(messageId);
+    queryClient.setQueryData(CONVERSATIONS_KEY, (list = []) => [result.conversation, ...list.filter((conv) => conv.id !== result.conversation.id)]);
+    queryClient.setQueryData(dmKey(result.conversation.id), (data) => data ? applyPagedNew(data, result.message) : data);
+    return result;
   };
 
   const activeConversation = active.type === 'direct' ? conversationsQuery.data?.find((conv) => conv.id === active.conv.id) ?? active.conv : null;
@@ -381,7 +409,10 @@ export default function ChatPage() {
           </div>
         )}
         <UserSearch onSelect={(profile) => setModal({ mode: 'other', profile })} />
-        <div className="sidebar__tools"><button type="button" className="btn-ghost btn-block" onClick={() => setModal({ mode: 'createGroup' })}><span aria-hidden="true">＋</span> {t('groups.create')}</button></div>
+        <div className="sidebar__tools">
+          <button type="button" className="btn-ghost sidebar__saved-action" disabled={openingSaved} onClick={openSaved}><BookmarkIcon width={17} height={17} />{openingSaved ? t('common.loading') : t('saved.title')}</button>
+          <button type="button" className="btn-ghost" onClick={() => setModal({ mode: 'createGroup' })}><span aria-hidden="true">＋</span> {t('groups.create')}</button>
+        </div>
         {notice && <div className="sidebar__notice" role="status">{notice}<button className="icon-btn" onClick={() => setNotice(null)} aria-label={t('profile.close')}>×</button></div>}
         <ChatList
           conversations={conversationsQuery.data ?? []}
@@ -412,6 +443,7 @@ export default function ChatPage() {
           visible={!isMobile || chatOpen}
           onBack={goBack}
           onOpenProfile={(message) => setModal({ mode: 'other', profile: profileFromMessage(message) })}
+          onSaveMessage={saveToFavorites}
         />
       </main>
       {modal?.mode === 'own' && <ProfileModal onClose={closeModal} />}

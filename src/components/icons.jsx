@@ -75,3 +75,7 @@ export function PinIcon(props) {
 export function BellIcon(props) {
   return <svg {...baseProps} {...props}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>;
 }
+
+export function BookmarkIcon(props) {
+  return <svg {...baseProps} {...props}><path d="M6 4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17l-6-4-6 4V4Z" /></svg>;
+}
