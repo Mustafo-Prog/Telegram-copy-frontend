@@ -1,0 +1,35 @@
+.chat.chat--custom-background { background-size: cover; background-position: center; background-repeat: no-repeat; }
+.chat--custom-background::before { display: none; }
+.chat__background-toggle { flex-shrink: 0; }
+.background-hint { margin-bottom: 14px; }
+.background-preview { position: relative; isolation: isolate; display: flex; flex-direction: column; justify-content: center; gap: 13px; min-height: 175px; padding: 22px; border-radius: 18px; overflow: hidden; background-size: cover; background-position: center; border: 1px solid var(--line); }
+.background-preview--default, .background-choice__sample--default { background: var(--canvas); }
+.background-preview--default::before, .background-choice__sample--default::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--doodle); opacity: var(--doodle-opacity); mask-image: var(--doodle-mask); mask-size: 160px 160px; }
+.background-preview__bubble { align-self: flex-start; padding: 11px 14px; max-width: 90%; border-radius: 15px 15px 15px 4px; background: var(--bubble-in); color: var(--ink); box-shadow: var(--shadow-bubble); font-size: 13px; }
+.background-preview__bubble--own { align-self: flex-end; background: var(--bubble-out); color: var(--bubble-out-ink); border-radius: 15px 15px 4px 15px; }
+.background-presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 18px 0; }
+.background-choice { display: flex; flex-direction: column; gap: 6px; align-items: center; min-width: 0; padding: 4px; color: var(--muted); font-size: 12px; border-radius: 13px; }
+.background-choice__sample { position: relative; isolation: isolate; display: grid; place-items: center; width: 100%; height: 66px; border: 2px solid transparent; border-radius: 11px; overflow: hidden; }
+.background-choice--selected { color: var(--accent); font-weight: 700; }
+.background-choice--selected .background-choice__sample { border-color: var(--accent); box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
+.background-choice__sample > svg { background: var(--panel); color: var(--accent); border-radius: 50%; width: 28px; height: 28px; padding: 4px; box-shadow: var(--shadow-bubble); }
+.background-custom { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.background-color { display: inline-flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 12px; font-size: 13px; cursor: pointer; }
+.background-color--selected { border-color: var(--accent); color: var(--accent); }
+.background-color input { width: 26px; height: 26px; padding: 0; border: none; background: transparent; cursor: pointer; }
+.background-upload { display: inline-flex; gap: 7px; align-items: center; font-size: 13px; }
+.background-photo { font-size: 12px; }
+.background-file-hint { margin-top: 9px; }
+.background-dim { display: block; margin: 18px 0; font-size: 13px; }
+.background-dim > span { display: flex; justify-content: space-between; margin-bottom: 8px; }
+.background-dim output { color: var(--muted); font-variant-numeric: tabular-nums; }
+.background-dim input { width: 100%; accent-color: var(--accent); }
+.background-actions { position: sticky; bottom: -24px; display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; padding: 14px 0 4px; background: var(--panel); box-shadow: 0 -10px 12px var(--panel); }
+.background-actions .btn-primary { width: auto; padding: 11px 20px; }
+.sidebar__settings { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 13px; padding: 9px 12px; border-radius: 12px; }
+.sidebar__settings:hover { color: var(--accent); background: var(--accent-soft); }
+@media (max-width: 760px) {
+  .background-preview { min-height: 150px; padding: 15px; }
+  .background-choice__sample { height: 55px; }
+  .chat__header .chat__background-toggle { width: 30px; }
+}

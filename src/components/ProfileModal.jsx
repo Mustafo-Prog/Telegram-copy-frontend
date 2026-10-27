@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import { useI18n } from '../i18n/I18nProvider.jsx';
 import { useQuery } from '@tanstack/react-query';
 import { getProfile, removeAvatar, updatePrivacy, updateProfile, uploadAvatar } from '../api/usersApi.js';
 import PresenceLabel from './PresenceLabel.jsx';
 import Avatar from './Avatar.jsx';
+import AvatarViewer from './AvatarViewer.jsx';
 import { resizeAvatar } from '../utils/avatar.js';
 import { setPresenceMany } from '../realtime/presence.js';
 import { watchPresence, unwatchPresence } from '../realtime/socket.js';
@@ -35,12 +36,19 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
   const [saved, setSaved] = useState(false);
+  const [avatarOpen, setAvatarOpen] = useState(false);
+  const viewingAvatar = avatarOpen && Boolean(data.avatarUrl);
+  const closeAvatar = useCallback(() => setAvatarOpen(false), []);
 
   useEffect(() => {
-    const onKey = (e) => e.key === 'Escape' && onClose();
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || viewingAvatar) return;
+      e.preventDefault();
+      onClose();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, viewingAvatar]);
 
   const run = async (action) => {
     setError(null);
@@ -82,7 +90,8 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
   };
 
   return (
-    <div className="modal-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <>
+    <div className="modal-overlay" aria-hidden={viewingAvatar ? 'true' : undefined} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" role="dialog" aria-modal="true" aria-label={t('profile.title')}>
         <header className="modal__header">
           <h2>{t('profile.title')}</h2>
@@ -92,7 +101,9 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
         </header>
 
         <div className="modal__avatar">
-          <Avatar name={data.displayName} seed={data.id} size={96} src={data.avatarUrl} />
+          {data.avatarUrl ? <button type="button" className="profile-avatar-trigger" onClick={() => setAvatarOpen(true)} aria-label={t('avatarViewer.open')} title={t('avatarViewer.open')}>
+            <Avatar name={data.displayName} seed={data.id} size={96} src={data.avatarUrl} />
+          </button> : <Avatar name={data.displayName} seed={data.id} size={96} />}
           {!readOnly && (
             <div className="modal__avatar-actions">
               <button type="button" className="btn-link" disabled={pending} onClick={() => fileRef.current?.click()}>
@@ -194,5 +205,7 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
         {readOnly && error && <div className="auth-error" role="alert">{tError(error)}</div>}
       </div>
     </div>
+    {viewingAvatar && <AvatarViewer src={data.avatarUrl} name={data.displayName} onClose={closeAvatar} />}
+    </>
   );
 }

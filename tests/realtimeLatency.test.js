@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import { applyConversationPreview, applyConversationRead } from '../src/realtime/events.js';
 import { messagePayload } from '../src/utils/messageContent.js';
 import * as savedLocales from '../src/i18n/locales/saved.js';
+import { sortChats } from '../src/utils/chatList.js';
+import * as backgroundLocales from '../src/i18n/locales/backgrounds.js';
+import * as settingsLocales from '../src/i18n/locales/settings.js';
+import * as avatarLocales from '../src/i18n/locales/avatarViewer.js';
+import * as reliabilityLocales from '../src/i18n/locales/reliability.js';
 
 const stamp = (minute) => `2026-10-27T10:${String(minute).padStart(2, '0')}:00.000Z`;
 const chat = (overrides = {}) => ({ id: 'chat', lastMessageId: '001', lastMessageAt: stamp(1), lastMessageText: 'First', unreadCount: 2, ...overrides });
@@ -71,4 +76,19 @@ it('Saved Messages labels have matching translations in all supported languages'
   const keys = Object.keys(savedLocales.ru).sort();
   assert.deepEqual(Object.keys(savedLocales.en).sort(), keys);
   assert.deepEqual(Object.keys(savedLocales.uz).sort(), keys);
+});
+
+it('duplicate pinned rows never produce duplicate React keys or selection highlights', () => {
+  const pinned = chat({ id: 'saved', kind: 'saved', pinnedAt: stamp(0) });
+  const original = [pinned, chat(), { ...pinned }];
+  const sorted = sortChats(original);
+  assert.deepEqual(sorted.map((entry) => entry.id), ['saved', 'chat']);
+  assert.equal(original.length, 3);
+});
+
+it('background, settings, avatar and recovery labels are complete in all languages', () => {
+  for (const locales of [backgroundLocales, settingsLocales, avatarLocales, reliabilityLocales]) {
+    assert.deepEqual(Object.keys(locales.en).sort(), Object.keys(locales.ru).sort());
+    assert.deepEqual(Object.keys(locales.uz).sort(), Object.keys(locales.ru).sort());
+  }
 });

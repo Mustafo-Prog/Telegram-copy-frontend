@@ -6,6 +6,7 @@ import App from './App.jsx';
 import { AuthProvider } from './auth/AuthProvider.jsx';
 import { I18nProvider } from './i18n/I18nProvider.jsx';
 import { ThemeProvider } from './theme/ThemeProvider.jsx';
+import AppErrorBoundary from './components/AppErrorBoundary.jsx';
 import './styles/theme.css';
 
 const queryClient = new QueryClient({
@@ -14,16 +15,18 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <ThemeProvider>
-      <I18nProvider>
-        <QueryClientProvider client={queryClient}>
-          <BrowserRouter>
-            <AuthProvider>
-              <App />
-            </AuthProvider>
-          </BrowserRouter>
-        </QueryClientProvider>
-      </I18nProvider>
-    </ThemeProvider>
+    <AppErrorBoundary>
+      <ThemeProvider>
+        <I18nProvider>
+          <QueryClientProvider client={queryClient}>
+            <BrowserRouter>
+              <AuthProvider>
+                <App />
+              </AuthProvider>
+            </BrowserRouter>
+          </QueryClientProvider>
+        </I18nProvider>
+      </ThemeProvider>
+    </AppErrorBoundary>
   </StrictMode>
 );

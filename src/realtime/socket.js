@@ -31,6 +31,15 @@ export function subscribeRealtimeStatus(fn) {
   return () => statusListeners.delete(fn);
 }
 
+// A manual retry keeps the existing authenticated socket and its subscriptions.
+// An expired session still requires a new sign-in rather than a reconnect loop.
+export function retryRealtimeConnection() {
+  if (!socket || socket.connected || status === 'unauthorized') return false;
+  setStatus(hadConnection ? 'reconnecting' : 'connecting');
+  socket.connect();
+  return true;
+}
+
 const EVENTS = ['message:new', 'message:updated', 'message:deleted', 'chat:changed', 'presence:update', 'conversation:read', 'general:read', 'typing:update', 'preferences:changed'];
 
 // Подключение (однократно за сессию). Повторный вызов с тем же токеном ничего не делает.
@@ -54,12 +63,12 @@ export function connectRealtime({ onReconnect, onEvent }) {
   });
 
   socket.on('connect', () => {
-    const wasDown = hadConnection;
     hadConnection = true;
     setStatus('connected');
     for (const [id, entry] of watchedUsers) subscribeUser(id, entry);
-    // После разрыва: догружаем пропущенное через обычные запросы (без дублей — по id)
-    if (wasDown) handlers.onReconnect?.();
+    // Sync after the first connection too: an initial HTTP request may have failed
+    // or finished before the socket subscribed to newly arriving messages.
+    handlers.onReconnect?.();
   });
 
   socket.on('disconnect', (reason) => {

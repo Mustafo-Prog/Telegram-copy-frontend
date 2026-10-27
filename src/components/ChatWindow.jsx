@@ -23,8 +23,12 @@ import { applyConversationPreview, applyConversationRead, applyFlatNew } from '.
 import ChatEmptyState from './ChatEmptyState.jsx';
 import MessageSearchPanel from './MessageSearchPanel.jsx';
 import TypingLabel from './TypingLabel.jsx';
-import { SearchIcon } from './icons.jsx';
+import { ImageIcon, SearchIcon } from './icons.jsx';
 import SavedAvatar from './SavedAvatar.jsx';
+import ChatBackgroundModal from './ChatBackgroundModal.jsx';
+import useChatBackground from '../theme/useChatBackground.js';
+import { backgroundStyle } from '../utils/chatBackground.js';
+import RealtimeBanner from './RealtimeBanner.jsx';
 
 const GROUP_GAP_MS = 5 * 60 * 1000;
 const newClientMessageId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -113,6 +117,8 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, o
   const [editing, setEditing] = useState(null); // { id, text }
   const [replying, setReplying] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [backgroundOpen, setBackgroundOpen] = useState(false);
+  const background = useChatBackground(currentUser.id, chat.backgroundKey ?? chat.key);
   const [atBottom, setAtBottom] = useState(true);
   const [newMessageIds, setNewMessageIds] = useState(() => new Set());
   const [focused, setFocused] = useState(() => document.visibilityState === 'visible' && document.hasFocus());
@@ -369,13 +375,21 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, o
   }, [selecting, selected]);
 
   useEffect(() => {
-    if (!selecting) return undefined;
-    const onKey = (e) => {
-      if (e.key === 'Escape') exitSelect();
+    const onKey = (event) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.repeat || !visible) return;
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return;
+      event.preventDefault();
+      if (menu) setMenu(null);
+      else if (headerMenu) setHeaderMenu(false);
+      else if (searchOpen) setSearchOpen(false);
+      else if (selecting) { setSelecting(false); setSelected(new Set()); }
+      else if (editing) { if (!edit.isPending) setEditing(null); }
+      else if (replying) setReplying(null);
+      else onBack?.();
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selecting]);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [visible, menu, headerMenu, searchOpen, selecting, editing, replying, edit.isPending, onBack]);
 
   const startSelect = (id) => {
     setSelecting(true);
@@ -531,7 +545,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, o
   );
 
   return (
-    <section className="chat">
+    <section className={`chat${background.config.type !== 'default' ? ' chat--custom-background' : ''}`} style={backgroundStyle(background.config, background.imageUrl)}>
       {selecting ? (
         <header className="chat__header chat__header--select">
           <button type="button" className="icon-btn" onClick={exitSelect} aria-label={t('actions.cancel')}>
@@ -564,6 +578,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, o
             headerBody
           )}
           {chat.search && <button type="button" className="icon-btn chat__search-toggle" onClick={() => setSearchOpen((open) => !open)} aria-label={t('messageSearch.title')} aria-expanded={searchOpen}><SearchIcon /></button>}
+          <button type="button" className="icon-btn chat__background-toggle" disabled={background.loading} onClick={() => setBackgroundOpen(true)} aria-label={t('background.title')} title={t('background.title')}><ImageIcon /></button>
           {isDirect && (
             <div className="chat__more">
               <button
@@ -607,6 +622,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, o
         </header>
       )}
 
+      {!chat.demo && <RealtimeBanner />}
       {searchOpen && chat.search && <MessageSearchPanel chat={chat} onClose={() => setSearchOpen(false)} onJump={jumpToMessage} />}
 
       <div className="chat__messages" ref={scrollRef} onScroll={updateScrollPosition}>
@@ -680,6 +696,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, o
       {dialog && dialogProps && (
         <ConfirmDialog {...dialogProps} onConfirm={confirmDialog} onCancel={() => setDialog(null)} />
       )}
+      {backgroundOpen && <ChatBackgroundModal config={background.config} loadError={background.error} onSave={background.save} onClose={() => setBackgroundOpen(false)} />}
     </section>
   );
 }

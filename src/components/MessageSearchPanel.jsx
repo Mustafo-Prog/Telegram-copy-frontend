@@ -17,7 +17,7 @@ export default function MessageSearchPanel({ chat, onClose, onJump }) {
   });
   const messages = search.data?.pages.flatMap((page) => page.messages) ?? [];
   return <section className="message-search" aria-label={t('messageSearch.title')}>
-    <div className="message-search__bar"><input type="search" autoFocus value={input} maxLength={100} placeholder={t('messageSearch.placeholder')} aria-label={t('messageSearch.title')} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => event.key === 'Escape' && onClose()} /><button type="button" className="icon-btn" onClick={onClose} aria-label={t('profile.close')}>×</button></div>
+    <div className="message-search__bar"><input type="search" autoFocus value={input} maxLength={100} placeholder={t('messageSearch.placeholder')} aria-label={t('messageSearch.title')} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); onClose(); } }} /><button type="button" className="icon-btn" onClick={onClose} aria-label={t('profile.close')}>×</button></div>
     {query.length < 2 && <p className="field__hint">{t('messageSearch.hint')}</p>}
     {search.isFetching && <p className="field__hint">{t('common.loading')}</p>}
     {search.isError && <p className="auth-error" role="alert">{tError(search.error)}</p>}

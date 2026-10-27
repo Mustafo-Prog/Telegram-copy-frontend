@@ -1,0 +1,19 @@
+.settings-panel { padding-top: 4px; }
+.settings-section { padding: 20px 0; border-bottom: 1px solid var(--line); }
+.settings-section:first-child { padding-top: 12px; }
+.settings-section:last-child { padding-bottom: 0; border-bottom: 0; }
+.settings-section h3 { margin: 0 0 14px; font-size: 14px; font-weight: 700; color: var(--ink); }
+.settings-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 38px; font-size: 14px; }
+.settings-row h3 { margin: 0; }
+.settings-row > div:first-child { min-width: 0; }
+.settings-row small { display: block; margin-top: 4px; color: var(--muted); font-size: 12px; }
+.settings-row .lang-switch, .settings-row .icon-btn { flex-shrink: 0; }
+.settings-notifications .field__hint { margin: 0 0 12px; line-height: 1.55; }
+.settings-notifications .toggle-row { gap: 16px; min-height: 46px; }
+.settings-notifications .toggle-row span { min-width: 0; }
+.settings-notifications .toggle-row input { flex-shrink: 0; }
+.settings-notifications .auth-error { margin-bottom: 0; }
+@media (max-width: 420px) {
+  .settings-row { gap: 12px; }
+  .settings-notifications .toggle-row { font-size: 13px; }
+}

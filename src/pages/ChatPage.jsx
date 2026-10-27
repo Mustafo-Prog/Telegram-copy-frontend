@@ -5,15 +5,15 @@ import { useAuth } from '../auth/AuthProvider.jsx';
 import Avatar from '../components/Avatar.jsx';
 import ChatList from '../components/ChatList.jsx';
 import ChatWindow from '../components/ChatWindow.jsx';
-import LanguageSwitcher from '../components/LanguageSwitcher.jsx';
+import ChatEmptyState from '../components/ChatEmptyState.jsx';
 import ProfileModal from '../components/ProfileModal.jsx';
 import ThemeToggle from '../components/ThemeToggle.jsx';
 import UserSearch from '../components/UserSearch.jsx';
 import CreateGroupModal from '../components/CreateGroupModal.jsx';
 import GroupInfoModal from '../components/GroupInfoModal.jsx';
 import JoinGroupModal from '../components/JoinGroupModal.jsx';
-import NotificationSettings from '../components/NotificationSettings.jsx';
-import { BookmarkIcon, LogoutIcon } from '../components/icons.jsx';
+import SettingsModal from '../components/SettingsModal.jsx';
+import { BookmarkIcon, LogoutIcon, SettingsIcon } from '../components/icons.jsx';
 import {
   bulkDeleteConversationMessages,
   clearConversation,
@@ -98,7 +98,7 @@ export default function ChatPage() {
   const [openingSaved, setOpeningSaved] = useState(false);
   const savedRequestRef = useRef(null);
 
-  // { type: 'general' } или { type: 'direct', conv }
+  // type: general, direct or none after closing the current chat.
   const [active, setActive] = useState({ type: 'general' });
   const [modal, setModal] = useState(null);
   // На телефоне: открыт ли чат на весь экран (иначе видим список)
@@ -114,15 +114,15 @@ export default function ChatPage() {
   // Открыть чат: на телефоне запоминаем шаг в истории, чтобы «назад» Android закрывал чат
   const openChat = useCallback(() => {
     setChatOpen(true);
-    if (window.matchMedia('(max-width: 760px)').matches) {
+    if (window.matchMedia('(max-width: 760px)').matches && !isChatEntry()) {
       window.history.pushState({ ...window.history.state, tgChat: true }, '');
     }
   }, []);
 
   // Назад: если есть шаг истории чата — возвращаемся по нему, иначе просто закрываем
   const goBack = useCallback(() => {
+    setChatOpen(false); setActive({ type: 'none' });
     if (isChatEntry()) window.history.back();
-    else setChatOpen(false);
   }, []);
 
   const openConversationData = useCallback((conv) => {
@@ -151,7 +151,7 @@ export default function ChatPage() {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
-    const onPop = () => setChatOpen(isChatEntry());
+    const onPop = () => setChatOpen(isChatEntry() && activeRef.current.type !== 'none');
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
@@ -189,7 +189,7 @@ export default function ChatPage() {
 
       if (event === 'message:new') {
         const chatId = payload.scope === 'general' ? 'general' : payload.conversationId;
-        const currentId = activeRef.current.type === 'general' ? 'general' : activeRef.current.conv.id;
+        const currentId = activeRef.current.type === 'general' ? 'general' : activeRef.current.conv?.id ?? null;
         const conversation = queryClient.getQueryData(CONVERSATIONS_KEY)?.find((conv) => conv.id === chatId);
         notifyIncoming({ message: payload.message, userId: user.id, chatId, activeChatId: currentId,
           chatVisible: !viewRef.current.isMobile || viewRef.current.chatOpen,
@@ -372,8 +372,8 @@ export default function ChatPage() {
   };
 
   const activeConversation = active.type === 'direct' ? conversationsQuery.data?.find((conv) => conv.id === active.conv.id) ?? active.conv : null;
-  const chat = activeConversation ? directChat(activeConversation) : generalChat;
-  const activeKey = active.type === 'direct' ? active.conv.id : 'general';
+  const chat = activeConversation ? directChat(activeConversation) : active.type === 'general' ? generalChat : null;
+  const activeKey = active.type === 'direct' ? active.conv.id : active.type === 'general' ? 'general' : null;
   const statusText = REALTIME_TEXT[realtimeStatus] ? t(REALTIME_TEXT[realtimeStatus]) : null;
 
   return (
@@ -430,13 +430,12 @@ export default function ChatPage() {
           }}
         />
         <footer className="sidebar__footer">
-          <LanguageSwitcher />
-          <NotificationSettings />
+          <button type="button" className="sidebar__settings" onClick={() => setModal({ mode: 'settings' })}><SettingsIcon /><span>{t('settings.title')}</span></button>
           <ThemeToggle />
         </footer>
       </aside>
       <main className="main" ref={mainRef}>
-        <ChatWindow
+        {chat ? <ChatWindow
           key={chat.key}
           chat={chat}
           currentUser={user}
@@ -444,9 +443,10 @@ export default function ChatPage() {
           onBack={goBack}
           onOpenProfile={(message) => setModal({ mode: 'other', profile: profileFromMessage(message) })}
           onSaveMessage={saveToFavorites}
-        />
+        /> : <ChatEmptyState choose />}
       </main>
       {modal?.mode === 'own' && <ProfileModal onClose={closeModal} />}
+      {modal?.mode === 'settings' && <SettingsModal onClose={closeModal} />}
       {modal?.mode === 'createGroup' && <CreateGroupModal onClose={closeModal} onCreated={openConversationData} />}
       {modal?.mode === 'group' && <GroupInfoModal groupId={modal.groupId} onClose={closeModal} onUpdated={(conv) => setActive({ type: 'direct', conv })} onRemoved={() => { setModal(null); setActive({ type: 'general' }); queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY }); }} />}
       {searchParams.get('join') && <JoinGroupModal token={searchParams.get('join')} onClose={closeJoin} onJoined={(conv) => { closeJoin(); openConversationData(conv); }} />}

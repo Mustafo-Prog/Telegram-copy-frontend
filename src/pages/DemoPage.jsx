@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import Avatar from '../components/Avatar.jsx';
 import ChatWindow from '../components/ChatWindow.jsx';
 import ChatEmptyState from '../components/ChatEmptyState.jsx';
-import LanguageSwitcher from '../components/LanguageSwitcher.jsx';
+import SettingsModal from '../components/SettingsModal.jsx';
+import { SettingsIcon } from '../components/icons.jsx';
 import ThemeToggle from '../components/ThemeToggle.jsx';
 import { useI18n } from '../i18n/I18nProvider.jsx';
 import { useIsMobile } from '../utils/useIsMobile.js';
@@ -55,6 +56,7 @@ const SEED = [
 
 // Демоверсия: без входа, без API и без токена. Открывается по кнопке на экране входа.
 export default function DemoPage() {
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const { t, lang } = useI18n();
   const navigate = useNavigate();
   const isMobile = useIsMobile();
@@ -85,6 +87,8 @@ export default function DemoPage() {
   const demoChat = active
     ? {
         key: `demo-${sessionId}-${active.id}-${lang}`,
+        backgroundKey: `demo-${active.id}`,
+        demo: true,
         scope: 'direct',
         title: t(active.titleKey),
         subtitle: t(active.subtitleKey),
@@ -160,7 +164,7 @@ export default function DemoPage() {
           })}
         </ul>
         <footer className="sidebar__footer">
-          <LanguageSwitcher />
+          <button type="button" className="sidebar__settings" onClick={() => setSettingsOpen(true)}><SettingsIcon /><span>{t('settings.title')}</span></button>
           <ThemeToggle />
         </footer>
       </aside>
@@ -177,6 +181,7 @@ export default function DemoPage() {
           <ChatEmptyState choose demo />
         )}
       </main>
+      {settingsOpen && <SettingsModal notifications={false} onClose={() => setSettingsOpen(false)} />}
     </div>
   );
 }

@@ -79,3 +79,11 @@ export function BellIcon(props) {
 export function BookmarkIcon(props) {
   return <svg {...baseProps} {...props}><path d="M6 4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17l-6-4-6 4V4Z" /></svg>;
 }
+
+export function ImageIcon(props) {
+  return <svg {...baseProps} {...props}><rect x="3" y="3" width="18" height="18" rx="4" /><circle cx="8" cy="8" r="1.5" /><path d="m3 17 5-5 4 4 3-3 6 6" /></svg>;
+}
+
+export function SettingsIcon(props) {
+  return <svg {...baseProps} {...props}><path d="m9 3-.5 2-2 1.2-2-.6-2 3.4 1.5 1.5v2.4L2.5 14l2 3.4 2-.6 2 1.2.5 3h4l.5-3 2-1.2 2 .6 2-3.4-1.5-1.1v-2.4L20.5 9l-2-3.4-2 .6-2-1.2L14 3Z" /><circle cx="11.5" cy="12" r="3" /></svg>;
+}

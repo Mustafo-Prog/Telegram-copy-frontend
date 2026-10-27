@@ -6,16 +6,14 @@ import { requestNotificationPermission, unlockNotificationAudio } from '../notif
 import ModalFrame from './ModalFrame.jsx';
 import { BellIcon } from './icons.jsx';
 
-export default function NotificationSettings() {
+export default function NotificationSettings({ embedded = false }) {
   const { user } = useAuth();
   const { t } = useI18n();
   const preferences = useNotificationPreferences(user.id);
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);
-  return <>
-    <button type="button" className={`icon-btn${preferences.enabled ? ' notification-settings--on' : ''}`} onClick={() => { setOpen(true); unlockNotificationAudio(); }} aria-label={t('notifications.title')} title={t('notifications.title')}><BellIcon /></button>
-    {open && <ModalFrame title={t('notifications.title')} onClose={() => setOpen(false)}>
+  const controls = <>
       <p className="field__hint">{t('notifications.hint')}</p>
       <label className="toggle-row"><span>{t('notifications.enable')}</span><input type="checkbox" checked={preferences.enabled} disabled={pending} onChange={async () => {
         setError(null);
@@ -32,6 +30,10 @@ export default function NotificationSettings() {
       <label className="toggle-row"><span>{t('notifications.preview')}</span><input type="checkbox" checked={preferences.preview} disabled={!preferences.enabled} onChange={() => setNotificationPreferences(user.id, { preview: !preferences.preview })} /></label>
       {pending && <p role="status">{t('common.loading')}</p>}
       {error && <p className="auth-error" role="alert">{error}</p>}
-    </ModalFrame>}
+  </>;
+  if (embedded) return <div className="settings-notifications">{controls}</div>;
+  return <>
+    <button type="button" className={`icon-btn${preferences.enabled ? ' notification-settings--on' : ''}`} onClick={() => { setOpen(true); unlockNotificationAudio(); }} aria-label={t('notifications.title')} title={t('notifications.title')}><BellIcon /></button>
+    {open && <ModalFrame title={t('notifications.title')} onClose={() => setOpen(false)}>{controls}</ModalFrame>}
   </>;
 }
