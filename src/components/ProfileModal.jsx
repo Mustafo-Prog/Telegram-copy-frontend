@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../auth/AuthProvider.jsx';
 import { useI18n } from '../i18n/I18nProvider.jsx';
-import { useQuery } from '@tanstack/react-query';
-import { getProfile, removeAvatar, updatePrivacy, updateProfile, uploadAvatar } from '../api/usersApi.js';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getProfileById, promoteUser, removeAvatar, updatePrivacy, updateProfile, uploadAvatar } from '../api/usersApi.js';
 import PresenceLabel from './PresenceLabel.jsx';
 import Avatar from './Avatar.jsx';
 import AvatarViewer from './AvatarViewer.jsx';
 import { resizeAvatar } from '../utils/avatar.js';
 import { setPresenceMany } from '../realtime/presence.js';
 import { watchPresence, unwatchPresence } from '../realtime/socket.js';
+import AccountStatusBadge from './AccountStatusBadge.jsx';
+import { accountStatus, canPromoteUser, updateAccountCaches } from '../utils/accountStatus.js';
 
 const USERNAME_PATTERN = '[a-z0-9_]{3,32}';
 
@@ -16,11 +18,12 @@ const USERNAME_PATTERN = '[a-z0-9_]{3,32}';
 export default function ProfileModal({ profile, readOnly = false, onClose, onMessage }) {
   const { user, updateUser } = useAuth();
   const { t, tError } = useI18n();
-  // Чужой профиль из сообщения неполный (нет био): догружаем по нику
+  const queryClient = useQueryClient();
+  // Fetch by ID so Promote also works when the user has never chosen a username.
   const { data: fullProfile } = useQuery({
-    queryKey: ['profile', profile?.username],
-    queryFn: () => getProfile(profile.username),
-    enabled: readOnly && Boolean(profile?.username),
+    queryKey: ['profile', profile?.id],
+    queryFn: () => getProfileById(profile.id),
+    enabled: readOnly && Boolean(profile?.id),
   });
   const data = readOnly ? { ...profile, ...(fullProfile ?? {}) } : user;
   useEffect(() => {
@@ -37,6 +40,8 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
   const [error, setError] = useState(null);
   const [saved, setSaved] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
+  const [promoted, setPromoted] = useState(false);
+  const promotingRef = useRef(false);
   const viewingAvatar = avatarOpen && Boolean(data.avatarUrl);
   const closeAvatar = useCallback(() => setAvatarOpen(false), []);
 
@@ -74,6 +79,19 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
       setError(err);
       setPending(false);
     }
+  };
+
+  const promote = async () => {
+    if (!canPromoteUser(user, data) || promotingRef.current) return;
+    promotingRef.current = true;
+    setPending(true); setError(null);
+    try {
+      const result = await promoteUser(data.id);
+      queryClient.setQueryData(['profile', data.id], (current) => ({ ...data, ...current, ...result }));
+      updateAccountCaches(queryClient, { userId: result.id, status: result.status });
+      setPromoted(true);
+    } catch (err) { setError(err); }
+    finally { promotingRef.current = false; setPending(false); }
   };
 
   const save = (e) => {
@@ -127,7 +145,7 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
 
         {readOnly ? (
           <div className="modal__info">
-            <div className="modal__name">{data.displayName}</div>
+            <div className="modal__name">{data.displayName}<AccountStatusBadge status={data.status} compact /></div>
             <div className="modal__username">{data.username ? `@${data.username}` : t('profile.noUsername')}</div>
             {data.id && (
               <div className="modal__presence">
@@ -138,6 +156,7 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
           </div>
         ) : (
           <form onSubmit={save}>
+            <div className="profile-account-status"><span>{t('account.statusLabel')}</span><strong>{t(`account.status.${accountStatus(data.status)}`)}<AccountStatusBadge status={data.status} compact /></strong></div>
             <div className="field">
               <label htmlFor="profile-name">{t('profile.displayName')}</label>
               <input
@@ -203,6 +222,12 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
           </button>
         )}
         {readOnly && error && <div className="auth-error" role="alert">{tError(error)}</div>}
+        {readOnly && <div className="profile-account-status"><span>{t('account.statusLabel')}</span><strong>{t(`account.status.${accountStatus(data.status)}`)}</strong></div>}
+        {readOnly && canPromoteUser(user, data) && <button type="button" className="btn-ghost btn-block profile-promote" disabled={pending} onClick={promote} title={t('account.promoteHint')}>
+          <span aria-hidden="true">★ </span>{pending ? t('account.promoting') : t('account.promote')}
+          <small>{t('account.promoteHint')}</small>
+        </button>}
+        {readOnly && promoted && !error && <p className="form-ok" role="status">{t('account.promoted')}</p>}
       </div>
     </div>
     {viewingAvatar && <AvatarViewer src={data.avatarUrl} name={data.displayName} onClose={closeAvatar} />}

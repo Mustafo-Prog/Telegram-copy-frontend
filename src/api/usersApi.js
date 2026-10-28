@@ -29,6 +29,9 @@ export async function getProfile(username) {
   return body.user;
 }
 
+export const getProfileById = async (id) => (await api.get(`/users/by-id/${id}`)).data.user;
+export const promoteUser = async (id) => (await api.post(`/users/${id}/promote`)).data.user;
+
 export async function updatePrivacy(showOnlineStatus) {
   const { data: body } = await api.patch('/users/me/privacy', { showOnlineStatus });
   return body.user;

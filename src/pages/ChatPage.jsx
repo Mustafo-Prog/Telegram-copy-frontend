@@ -61,6 +61,8 @@ import { notifyIncoming, subscribeNotificationClicks, clearUserNotifications } f
 import { validChatId } from '../utils/notifications.js';
 import { getMessageReaders, setMessageReaction } from '../api/messageInteractionsApi.js';
 import { applyReactionEvent } from '../realtime/events.js';
+import { accountStatus, updateAccountCaches } from '../utils/accountStatus.js';
+import AccountStatusBadge from '../components/AccountStatusBadge.jsx';
 
 const GENERAL_KEY = ['chat', 'general', 'messages'];
 const PREVIEW_KEY = ['messages'];
@@ -74,6 +76,7 @@ function profileFromMessage(message) {
     displayName: message.senderName,
     username: message.senderUsername,
     avatarUrl: message.senderAvatarUrl,
+    status: message.senderStatus,
     bio: '',
   };
 }
@@ -87,7 +90,7 @@ const REALTIME_TEXT = {
 };
 
 export default function ChatPage() {
-  const { user, logout, updateUser } = useAuth();
+  const { user, logout, updateUser, refreshUser } = useAuth();
   const { t } = useI18n();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
@@ -165,6 +168,15 @@ export default function ChatPage() {
   // иначе скроется остальная история. Для списка диалогов без данных — перезагрузка.
   const handleEvent = useCallback(
     (event, payload) => {
+      if (event === 'account:updated' || event === 'user:updated') {
+        if (!payload.userId || accountStatus(payload.status) !== payload.status) return;
+        updateAccountCaches(queryClient, payload);
+        updateUser((current) => current?.id === payload.userId ? { ...current, status: payload.status } : current);
+        setModal((current) => current?.mode === 'other' && current.profile.id === payload.userId ? {
+          ...current, profile: { ...current.profile, status: payload.status },
+        } : current);
+        return;
+      }
       if (event === 'typing:update') { if (payload.userId !== user.id) setTypingEvent(payload); return; }
       if (event === 'preferences:changed') { updateUser((current) => ({ ...current, ...payload })); return; }
       if (event === 'presence:update') {
@@ -280,11 +292,14 @@ export default function ChatPage() {
 
   // После разрыва связи: догружаем пропущенное обычными запросами (дубликаты отсекаются по id)
   const onReconnect = useCallback(() => {
+    refreshUser().catch(() => {});
+    queryClient.invalidateQueries({ queryKey: ['profile'] });
+    queryClient.invalidateQueries({ queryKey: ['userSearch'] });
     queryClient.invalidateQueries({ queryKey: ['message-readers'] });
     queryClient.invalidateQueries({ queryKey: ['chat'] });
     queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
     queryClient.invalidateQueries({ queryKey: PREVIEW_KEY });
-  }, [queryClient]);
+  }, [queryClient, refreshUser]);
 
   useEffect(() => {
     connectRealtime({
@@ -404,7 +419,7 @@ export default function ChatPage() {
             <Avatar name={user.displayName} seed={user.id} size={40} src={user.avatarUrl} />
           </button>
           <div className="sidebar__who">
-            <div className="sidebar__name">{user.displayName}</div>
+            <div className="sidebar__name">{user.displayName}<AccountStatusBadge status={user.status} compact /></div>
             <div className="sidebar__email">{user.username ? `@${user.username}` : user.email}</div>
           </div>
           <button

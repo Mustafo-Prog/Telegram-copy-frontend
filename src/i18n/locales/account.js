@@ -1,0 +1,36 @@
+export const ru = {
+  'account.statusLabel': 'Статус аккаунта',
+  'account.status.user': 'Пользователь',
+  'account.status.admin': 'Premium',
+  'account.status.superadmin': 'Суперадмин',
+  'account.promote': 'Promote',
+  'account.promoteHint': 'Выдать Premium',
+  'account.promoting': 'Назначаем…',
+  'account.promoted': 'Пользователю выдан Premium',
+  'errors.superadmin_required': 'Это действие доступно только суперадмину',
+  'errors.status_protected': 'Этот статус нельзя изменить через Promote',
+};
+export const en = {
+  'account.statusLabel': 'Account status',
+  'account.status.user': 'User',
+  'account.status.admin': 'Premium',
+  'account.status.superadmin': 'Superadmin',
+  'account.promote': 'Promote',
+  'account.promoteHint': 'Grant Premium',
+  'account.promoting': 'Promoting…',
+  'account.promoted': 'Premium has been granted',
+  'errors.superadmin_required': 'Only a superadmin can do this',
+  'errors.status_protected': 'This status cannot be changed using Promote',
+};
+export const uz = {
+  'account.statusLabel': 'Hisob holati',
+  'account.status.user': 'Foydalanuvchi',
+  'account.status.admin': 'Premium',
+  'account.status.superadmin': 'Superadmin',
+  'account.promote': 'Promote',
+  'account.promoteHint': 'Premium berish',
+  'account.promoting': 'Tayinlanmoqda…',
+  'account.promoted': 'Foydalanuvchiga Premium berildi',
+  'errors.superadmin_required': 'Bu amal faqat superadmin uchun mavjud',
+  'errors.status_protected': 'Bu holatni Promote orqali oʻzgartirib boʻlmaydi',
+};

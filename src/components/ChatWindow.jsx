@@ -266,7 +266,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, o
   // Остальное решает сервер; пакеты по 100 id.
   const removeMany = async (ids, mode) => {
     const deletable = new Set(
-      messages.filter((m) => canDeleteMessage(m, { isDirect, userId: currentUser.id })).map((m) => m.id)
+      messages.filter((m) => canDeleteMessage(m, { isDirect, userId: currentUser.id, userStatus: currentUser.status })).map((m) => m.id)
     );
     const shownNow = ids.filter((id) => deletable.has(id));
 
@@ -416,7 +416,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, o
 
   const isOwn = (m) => m.senderId === currentUser.id;
   const canEdit = (m) => isOwn(m) && !m.pending;
-  const canDelete = (m) => canDeleteMessage(m, { isDirect, userId: currentUser.id });
+  const canDelete = (m) => canDeleteMessage(m, { isDirect, userId: currentUser.id, userStatus: currentUser.status });
   const savingIds = useRef(new Set());
   const reactToMessage = async (message, emoji, active) => {
     if (!chat.react || reactionsInFlight.current.has(message.id)) return;

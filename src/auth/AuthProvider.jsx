@@ -59,9 +59,22 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, [queryClient]);
 
+  const refreshUser = useCallback(async () => {
+    if (!localStorage.getItem(TOKEN_KEY)) return;
+    const currentUser = await authApi.getMe();
+    setUser((current) => current?.id === currentUser.id ? currentUser : current);
+  }, []);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const onFocus = () => { refreshUser().catch(() => {}); };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [user?.id, refreshUser]);
+
   const value = useMemo(
-    () => ({ user, loading, sessionError, retrySession: restoreSession, requestCode, verifyCode, logout, updateUser: setUser }),
-    [user, loading, sessionError, restoreSession, requestCode, verifyCode, logout]
+    () => ({ user, loading, sessionError, retrySession: restoreSession, requestCode, verifyCode, logout, updateUser: setUser, refreshUser }),
+    [user, loading, sessionError, restoreSession, requestCode, verifyCode, logout, refreshUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -8,6 +8,7 @@ import PresenceLabel from './PresenceLabel.jsx';
 import ModalFrame from './ModalFrame.jsx';
 import MemberPicker from './MemberPicker.jsx';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import AccountStatusBadge from './AccountStatusBadge.jsx';
 
 export default function GroupInfoModal({ groupId, onClose, onUpdated, onRemoved }) {
   const { user } = useAuth();
@@ -53,7 +54,7 @@ export default function GroupInfoModal({ groupId, onClose, onUpdated, onRemoved 
           const memberAdmin = group.adminIds.includes(member.id);
           return <li key={member.id}>
             <Avatar name={member.displayName} seed={member.id} src={member.avatarUrl} size={36} />
-            <div className="group-member__body"><strong>{member.displayName}</strong><small>{memberOwner ? t('groups.owner') : memberAdmin ? t('groups.admin') : member.username ? `@${member.username}` : t('groups.member')}</small><PresenceLabel userId={member.id} fallback={member.presence} lastSeenAt={member.lastSeenAt} /></div>
+            <div className="group-member__body"><strong>{member.displayName}<AccountStatusBadge status={member.status} compact /></strong><small>{memberOwner ? t('groups.owner') : memberAdmin ? t('groups.admin') : member.username ? `@${member.username}` : t('groups.member')}</small><PresenceLabel userId={member.id} fallback={member.presence} lastSeenAt={member.lastSeenAt} /></div>
             <div className="group-member__actions">
               {owner && !memberOwner && <>
                 <button className="btn-link" disabled={pending} onClick={() => run(() => api.setGroupAdmin(groupId, member.id, !memberAdmin))}>{t(memberAdmin ? 'groups.demote' : 'groups.promote')}</button>

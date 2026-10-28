@@ -1,5 +1,9 @@
 .account-status-badge { display: inline-flex; align-items: center; gap: 4px; margin-left: 5px; color: #8c68d9; font-size: 12px; vertical-align: middle; }
 .account-status-badge--compact { font-size: 15px; }
+.profile-account-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 14px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; font-size: 13px; color: var(--muted); }
+.profile-account-status strong { color: var(--ink); }
+.profile-promote { display: block; margin-top: 12px; }
+.profile-promote small { display: block; margin-top: 3px; color: var(--muted); font-weight: 400; }
 .message-reactions { margin-top: 6px; }
 .message-reactions__chips { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .reaction-chip, .reaction-add { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 28px; border: 1px solid transparent; border-radius: 16px; padding: 3px 9px; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; }

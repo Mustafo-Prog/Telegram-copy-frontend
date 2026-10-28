@@ -19,9 +19,9 @@ export function chunk(ids, size = BULK_LIMIT) {
 }
 
 // Личное: удалять можно любое видимое сообщение; общее: только своё
-export function canDeleteMessage(message, { isDirect, userId }) {
+export function canDeleteMessage(message, { isDirect, userId, userStatus = 'user' }) {
   if (message.pending) return false;
-  return isDirect || message.senderId === userId;
+  return isDirect || message.senderId === userId || userStatus === 'superadmin';
 }
 
 export function canEditMessage(message, userId) {
