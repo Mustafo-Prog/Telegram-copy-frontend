@@ -40,7 +40,7 @@ export function retryRealtimeConnection() {
   return true;
 }
 
-const EVENTS = ['message:new', 'message:updated', 'message:deleted', 'chat:changed', 'presence:update', 'conversation:read', 'general:read', 'typing:update', 'preferences:changed'];
+const EVENTS = ['message:new', 'message:updated', 'message:deleted', 'message:reactions', 'chat:changed', 'presence:update', 'conversation:read', 'general:read', 'typing:update', 'preferences:changed'];
 
 // Подключение (однократно за сессию). Повторный вызов с тем же токеном ничего не делает.
 export function connectRealtime({ onReconnect, onEvent }) {

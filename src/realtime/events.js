@@ -2,6 +2,11 @@
 import { mapPages, upsertNewest, removeMessages, mergeMessage } from '../utils/messageState.js';
 import { applyGeneralReadCursors } from '../utils/generalReads.js';
 import { sortChats } from '../utils/chatList.js';
+import { mergeReactions } from '../utils/reactions.js';
+
+export function applyReactionEvent(data, payload) {
+  return mapPages(data, (messages) => messages.map((message) => mergeReactions(message, payload)));
+}
 
 // Сообщение общего чата или личного диалога в страничном кэше
 export function applyPagedNew(data, message) {

@@ -4,6 +4,8 @@ import { hueFromSeed } from '../utils/hue.js';
 import Avatar from './Avatar.jsx';
 import { BookmarkIcon, CheckCheckIcon, CheckIcon } from './icons.jsx';
 import MessageAttachment from './MessageAttachment.jsx';
+import AccountStatusBadge from './AccountStatusBadge.jsx';
+import MessageReactions from './MessageReactions.jsx';
 
 const LONG_PRESS_MS = 450;
 const MOVE_TOLERANCE_PX = 10;
@@ -24,6 +26,10 @@ export default function MessageBubble({
   onJumpToMessage,
   onSave,
   hideReceipt = false,
+  currentUserId,
+  onReact,
+  reacting = false,
+  onShowReaders,
 }) {
   const { t, formatTime } = useI18n();
   const author = message.senderName ?? t('chat.deletedUser');
@@ -134,10 +140,10 @@ export default function MessageBubble({
                 openProfile();
               }}
             >
-              {author}
+              {author}<AccountStatusBadge status={message.senderStatus} compact />
             </button>
           ) : (
-            <div className="bubble__author">{author}</div>
+            <div className="bubble__author">{author}<AccountStatusBadge status={message.senderStatus} compact /></div>
           ))}
         {message.savedFrom && <div className="saved-message-source">{t('saved.from', { name: message.savedFrom.senderName || t('chat.deletedUser') })}</div>}
         {message.replyTo && <button type="button" className="bubble__reply" onClick={(e) => {
@@ -148,12 +154,17 @@ export default function MessageBubble({
         </button>}
         {message.attachment && <MessageAttachment attachment={message.attachment} />}
         {message.text && <div className="bubble__text">{message.text}</div>}
+        {onReact && !message.pending && !selecting && <MessageReactions message={message} userId={currentUserId} onReact={onReact} disabled={reacting} />}
         <div className="bubble__meta">
           {message.editedAt && <span className="bubble__edited">{t('chat.edited')}</span>}
           <span>{message.pending ? '…' : formatTime(message.createdAt)}</span>
           {isOwn && !message.pending && !hideReceipt && <span className="bubble__receipt" role="img" aria-label={t(read ? 'chat.read' : 'chat.sent')} title={t(read ? 'chat.read' : 'chat.sent')}>
             {read ? <CheckCheckIcon className="bubble__ticks" /> : <CheckIcon className="bubble__ticks" />}
           </span>}
+          {onShowReaders && isOwn && !message.pending && !selecting && <button type="button" className="bubble__readers" aria-label={t('readers.title')} title={t('readers.title')}
+            onClick={(event) => { event.stopPropagation(); onShowReaders(); }} onTouchStart={(event) => event.stopPropagation()}>
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z" fill="none" stroke="currentColor" strokeWidth="1.7" /><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.7" /></svg>
+          </button>}
         </div>
         {message.failed && (
           <div className="bubble__failed" role="alert">

@@ -8,6 +8,7 @@ import { I18nProvider } from './i18n/I18nProvider.jsx';
 import { ThemeProvider } from './theme/ThemeProvider.jsx';
 import AppErrorBoundary from './components/AppErrorBoundary.jsx';
 import './styles/theme.css';
+import './styles/messageInteractions.css';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },

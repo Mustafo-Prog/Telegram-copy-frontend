@@ -9,6 +9,7 @@ import * as backgrounds from './locales/backgrounds.js';
 import * as settings from './locales/settings.js';
 import * as avatarViewer from './locales/avatarViewer.js';
 import * as reliability from './locales/reliability.js';
+import * as interactions from './locales/interactions.js';
 
 const STORAGE_KEY = 'tg_lang';
 const DEFAULT_LANG = 'ru';
@@ -19,7 +20,7 @@ export const LANGUAGES = [
   { code: 'uz', label: 'UZ', name: 'Oʻzbekcha', locale: 'uz-UZ' },
 ];
 
-const DICTIONARIES = { ru: { ...ru, ...extras.ru, ...roadmap.ru, ...saved.ru, ...backgrounds.ru, ...settings.ru, ...avatarViewer.ru, ...reliability.ru }, en: { ...en, ...extras.en, ...roadmap.en, ...saved.en, ...backgrounds.en, ...settings.en, ...avatarViewer.en, ...reliability.en }, uz: { ...uz, ...extras.uz, ...roadmap.uz, ...saved.uz, ...backgrounds.uz, ...settings.uz, ...avatarViewer.uz, ...reliability.uz } };
+const DICTIONARIES = { ru: { ...ru, ...extras.ru, ...roadmap.ru, ...saved.ru, ...backgrounds.ru, ...settings.ru, ...avatarViewer.ru, ...reliability.ru, ...interactions.ru }, en: { ...en, ...extras.en, ...roadmap.en, ...saved.en, ...backgrounds.en, ...settings.en, ...avatarViewer.en, ...reliability.en, ...interactions.en }, uz: { ...uz, ...extras.uz, ...roadmap.uz, ...saved.uz, ...backgrounds.uz, ...settings.uz, ...avatarViewer.uz, ...reliability.uz, ...interactions.uz } };
 
 function detectLanguage() {
   try {

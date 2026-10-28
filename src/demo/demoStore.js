@@ -105,3 +105,14 @@ export function clearDemoChat(store, chatId) {
 export function deleteDemoChat(store, chatId) {
   store.chats = store.chats.filter((c) => c.id !== chatId);
 }
+
+export function reactDemoMessage(store, chatId, messageId, userId, emoji, active) {
+  const message = findMessage(findChat(store, chatId), messageId);
+  const reactions = (message.reactions ?? []).filter((entry) => entry.emoji !== emoji);
+  const users = new Set(message.reactions?.find((entry) => entry.emoji === emoji)?.userIds ?? []);
+  if (active) users.add(userId); else users.delete(userId);
+  if (users.size) reactions.push({ emoji, count: users.size, userIds: [...users] });
+  message.reactions = reactions;
+  message.reactionsVersion = (message.reactionsVersion ?? 0) + 1;
+  return { messageId, reactions, reactionsVersion: message.reactionsVersion };
+}

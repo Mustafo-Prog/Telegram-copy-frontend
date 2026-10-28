@@ -17,6 +17,7 @@ import {
   loadDemoMessages,
   removeDemoMessages,
   sendDemoMessage,
+  reactDemoMessage,
 } from '../demo/demoStore.js';
 
 const minutesAgo = (n) => new Date(Date.now() - n * 60 * 1000).toISOString();
@@ -98,6 +99,7 @@ export default function DemoPage() {
         avatar: { name: t(active.titleKey), seed: active.id },
         load: async () => loadDemoMessages(store, active.id, resolve),
         send: async (text, options) => resolve(change(() => sendDemoMessage(store, active.id, text, me, options))),
+        react: async (messageId, emoji, value) => change(() => reactDemoMessage(store, active.id, messageId, me.id, emoji, value)),
         edit: async (id, text) => resolve(change(() => editDemoMessage(store, active.id, id, text, me.id))),
         remove: async (ids) => change(() => removeDemoMessages(store, active.id, ids, me.id)),
         clear: async () => {

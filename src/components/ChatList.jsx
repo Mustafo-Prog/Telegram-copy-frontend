@@ -11,6 +11,7 @@ import { sortChats } from '../utils/chatList.js';
 import Avatar from './Avatar.jsx';
 import { PinIcon } from './icons.jsx';
 import SavedAvatar from './SavedAvatar.jsx';
+import AccountStatusBadge from './AccountStatusBadge.jsx';
 
 function PeerAvatar({ peer }) {
   const status = usePresence(peer?.id) ?? peer?.presence;
@@ -78,7 +79,7 @@ export default function ChatList({ activeKey, onSelectGeneral, onSelectConversat
       return <li key={conversation.id} className={`chat-list__row${selected ? ' chat-list__row--active' : ''}`}>
         <button type="button" className={`chat-list__item${selected ? ' chat-list__item--active' : ''}`} aria-current={selected ? 'true' : undefined} onClick={() => generalChat ? onSelectGeneral() : onSelectConversation(conversation)}>
           {saved ? <SavedAvatar size={48} /> : generalChat || group ? <Avatar name={title} seed={conversation.id} size={48} /> : <PeerAvatar peer={conversation.peer} />}
-          <div className="chat-list__body"><div className="chat-list__top"><span className="chat-list__name">{title}</span>{conversation.pinnedAt && <PinIcon className="chat-list__pinned-mark" width={12} height={12} />}{conversation.lastMessageAt && <span className="chat-list__time">{formatTime(conversation.lastMessageAt)}</span>}</div>
+          <div className="chat-list__body"><div className="chat-list__top"><span className="chat-list__name">{title}</span>{!generalChat && !group && !saved && <AccountStatusBadge status={conversation.peer?.status} compact />}{conversation.pinnedAt && <PinIcon className="chat-list__pinned-mark" width={12} height={12} />}{conversation.lastMessageAt && <span className="chat-list__time">{formatTime(conversation.lastMessageAt)}</span>}</div>
             <div className="chat-list__bottom"><div className="chat-list__preview">{preview}</div>{conversation.unreadCount > 0 && <span className="chat-list__unread" aria-label={t('chat.unread', { count: conversation.unreadCount })}>{conversation.unreadCount > 99 ? '99+' : conversation.unreadCount}</span>}</div>
           </div>
         </button>

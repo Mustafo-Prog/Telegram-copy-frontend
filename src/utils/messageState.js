@@ -52,6 +52,10 @@ export function mapPages(data, fn) {
 export function mergeMessage(previous, incoming) {
   const message = { ...previous, ...incoming };
   if (previous?.readByOther) message.readByOther = true;
+  if ((previous?.reactionsVersion ?? 0) > (incoming.reactionsVersion ?? 0)) {
+    message.reactions = previous.reactions;
+    message.reactionsVersion = previous.reactionsVersion;
+  }
   return message;
 }
 

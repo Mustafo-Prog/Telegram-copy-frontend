@@ -59,6 +59,8 @@ import { useSwipeBack } from '../utils/useSwipeBack.js';
 import { setTypingEvent } from '../realtime/typing.js';
 import { notifyIncoming, subscribeNotificationClicks, clearUserNotifications } from '../notifications/manager.js';
 import { validChatId } from '../utils/notifications.js';
+import { getMessageReaders, setMessageReaction } from '../api/messageInteractionsApi.js';
+import { applyReactionEvent } from '../realtime/events.js';
 
 const GENERAL_KEY = ['chat', 'general', 'messages'];
 const PREVIEW_KEY = ['messages'];
@@ -171,6 +173,7 @@ export default function ChatPage() {
       }
 
       if (event === 'conversation:read') {
+        queryClient.invalidateQueries({ queryKey: ['message-readers', `dm-${payload.conversationId}`] });
         if (payload.userId !== user.id) {
           queryClient.setQueryData(dmKey(payload.conversationId), (old) => applyReadReceipt(old, payload.messageId));
         }
@@ -181,9 +184,15 @@ export default function ChatPage() {
       }
 
       if (event === 'general:read') {
+        queryClient.invalidateQueries({ queryKey: ['message-readers', 'general'] });
         generalReadCursorsRef.current = mergeGeneralReadCursors(generalReadCursorsRef.current, payload);
         queryClient.setQueryData(GENERAL_KEY, (old) => applyGeneralReadReceipt(old, payload));
         queryClient.setQueryData(PREVIEW_KEY, (old) => old ? applyGeneralReadCursors(old, [payload]) : old);
+        return;
+      }
+
+      if (event === 'message:reactions') {
+        queryClient.setQueryData(payload.scope === 'general' ? GENERAL_KEY : dmKey(payload.conversationId), (old) => applyReactionEvent(old, payload));
         return;
       }
 
@@ -271,6 +280,7 @@ export default function ChatPage() {
 
   // После разрыва связи: догружаем пропущенное обычными запросами (дубликаты отсекаются по id)
   const onReconnect = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ['message-readers'] });
     queryClient.invalidateQueries({ queryKey: ['chat'] });
     queryClient.invalidateQueries({ queryKey: CONVERSATIONS_KEY });
     queryClient.invalidateQueries({ queryKey: PREVIEW_KEY });
@@ -309,6 +319,8 @@ export default function ChatPage() {
         return applyGeneralReadCursors([message], generalReadCursorsRef.current)[0];
       },
       markRead: markGeneralRead,
+      readers: getMessageReaders,
+      react: setMessageReaction,
       edit: (id, text) => editGeneralMessage(id, text),
       remove: (ids) => bulkDeleteGeneralMessages(ids),
       title: t('chat.groupName'),
@@ -327,6 +339,8 @@ export default function ChatPage() {
     canModerate: conv.ownerId === user.id || conv.adminIds?.includes(user.id),
     send: (text, options) => sendConversationMessage(conv.id, text, options),
     markRead: conv.kind === 'saved' ? undefined : (messageId) => markConversationRead(conv.id, messageId),
+    readers: conv.kind === 'group' ? getMessageReaders : undefined,
+    react: conv.kind === 'saved' ? undefined : setMessageReaction,
     conversationId: conv.id,
     peerLastReadMessageId: conv.peerLastReadMessageId,
     edit: (id, text) => editConversationMessage(conv.id, id, text),

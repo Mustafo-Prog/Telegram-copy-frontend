@@ -29,6 +29,8 @@ import ChatBackgroundModal from './ChatBackgroundModal.jsx';
 import useChatBackground from '../theme/useChatBackground.js';
 import { backgroundStyle } from '../utils/chatBackground.js';
 import RealtimeBanner from './RealtimeBanner.jsx';
+import MessageReadersModal from './MessageReadersModal.jsx';
+import { applyReactionEvent } from '../realtime/events.js';
 
 const GROUP_GAP_MS = 5 * 60 * 1000;
 const newClientMessageId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -118,6 +120,9 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, o
   const [replying, setReplying] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [backgroundOpen, setBackgroundOpen] = useState(false);
+  const [readersMessageId, setReadersMessageId] = useState(null);
+  const [reactingIds, setReactingIds] = useState(() => new Set());
+  const reactionsInFlight = useRef(new Set());
   const background = useChatBackground(currentUser.id, chat.backgroundKey ?? chat.key);
   const [atBottom, setAtBottom] = useState(true);
   const [newMessageIds, setNewMessageIds] = useState(() => new Set());
@@ -413,6 +418,19 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, o
   const canEdit = (m) => isOwn(m) && !m.pending;
   const canDelete = (m) => canDeleteMessage(m, { isDirect, userId: currentUser.id });
   const savingIds = useRef(new Set());
+  const reactToMessage = async (message, emoji, active) => {
+    if (!chat.react || reactionsInFlight.current.has(message.id)) return;
+    reactionsInFlight.current.add(message.id);
+    setReactingIds(new Set(reactionsInFlight.current));
+    try {
+      const payload = await chat.react(message.id, emoji, active);
+      queryClient.setQueryData(messagesKey, (old) => applyReactionEvent(old, payload));
+    } catch (error) { if (mountedRef.current) setNotice(tError(error)); }
+    finally {
+      reactionsInFlight.current.delete(message.id);
+      if (mountedRef.current) setReactingIds(new Set(reactionsInFlight.current));
+    }
+  };
   const saveToFavorites = async (message) => {
     if (!onSaveMessage || savingIds.current.has(message.id)) return;
     savingIds.current.add(message.id);
@@ -423,6 +441,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, o
 
   const menuItems = (m) => {
     const items = [{ key: 'reply', label: t('actions.reply') }];
+    if (chat.readers && isOwn(m)) items.push({ key: 'readers', label: t('readers.title') });
     if (onSaveMessage && !isSaved) items.push({ key: 'save', label: t('saved.save') });
     if (m.text) items.push({ key: 'copy', label: t('actions.copy') });
     if (canEdit(m)) items.push({ key: 'edit', label: t('actions.edit') });
@@ -443,6 +462,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, o
     if (key === 'edit') { setReplying(null); setEditing({ id: message.id, text: message.text, attachment: message.attachment }); }
     if (key === 'reply') { setEditing(null); setReplying(message); }
     if (key === 'save') void saveToFavorites(message);
+    if (key === 'readers') setReadersMessageId(message.id);
     if (key === 'select') startSelect(message.id);
     if (key === 'delete') setDialog({ kind: 'delete', ids: [message.id] });
   };
@@ -665,6 +685,10 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, o
               onJumpToMessage={jumpToMessage}
               onSave={onSaveMessage && !isSaved ? () => saveToFavorites(item.message) : undefined}
               hideReceipt={isSaved}
+              currentUserId={currentUser.id}
+              onReact={chat.react ? (emoji, active) => reactToMessage(item.message, emoji, active) : undefined}
+              reacting={reactingIds.has(item.message.id)}
+              onShowReaders={chat.readers ? () => setReadersMessageId(item.message.id) : undefined}
             />
           )
         )}
@@ -697,6 +721,7 @@ export default function ChatWindow({ chat, currentUser, onOpenProfile, onBack, o
         <ConfirmDialog {...dialogProps} onConfirm={confirmDialog} onCancel={() => setDialog(null)} />
       )}
       {backgroundOpen && <ChatBackgroundModal config={background.config} loadError={background.error} onSave={background.save} onClose={() => setBackgroundOpen(false)} />}
+      {readersMessageId && chat.readers && <MessageReadersModal chat={chat} messageId={readersMessageId} onClose={() => setReadersMessageId(null)} />}
     </section>
   );
 }

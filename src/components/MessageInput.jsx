@@ -4,6 +4,7 @@ import { PaperclipIcon, SendIcon } from './icons.jsx';
 import { MAX_ATTACHMENT_BYTES, fileSize } from '../utils/messageContent.js';
 import VoiceRecorder from './VoiceRecorder.jsx';
 import { voiceTime } from '../utils/voiceCapture.js';
+import { clipboardImage } from '../utils/clipboardImage.js';
 
 const MAX_FIELD_HEIGHT = 140;
 
@@ -19,6 +20,7 @@ export default function MessageInput({ onSend, onTyping, disabled, editing = nul
   const [file, setFile] = useState(null);
   const [voiceDurationMs, setVoiceDurationMs] = useState(null);
   const [voiceUrl, setVoiceUrl] = useState(null);
+  const [imageUrl, setImageUrl] = useState(null);
   const [recording, setRecording] = useState(false);
   const typingTimer = useRef(null);
   const typingCallback = useRef(onTyping);
@@ -31,6 +33,11 @@ export default function MessageInput({ onSend, onTyping, disabled, editing = nul
     if (!file || !voiceDurationMs) { setVoiceUrl(null); return undefined; }
     const url = URL.createObjectURL(file); setVoiceUrl(url); return () => URL.revokeObjectURL(url);
   }, [file, voiceDurationMs]);
+  useEffect(() => {
+    if (!file || !/^image\/(png|jpeg|webp)$/.test(file.type)) { setImageUrl(null); return; }
+    const url = URL.createObjectURL(file); setImageUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
 
   useEffect(() => {
     if (editing) {
@@ -108,7 +115,7 @@ export default function MessageInput({ onSend, onTyping, disabled, editing = nul
       )}
       {file && !editing && (
         <div className="compose-context compose-context--file">
-          <PaperclipIcon /><span><strong>{voiceDurationMs ? t('voice.message') : file.name}</strong><small>{voiceDurationMs ? `${voiceTime(voiceDurationMs)} · ` : ''}{fileSize(file.size)}</small></span>
+          {imageUrl ? <img className="compose-image-preview" src={imageUrl} alt={t('clipboard.preview')} /> : <PaperclipIcon />}<span><strong>{voiceDurationMs ? t('voice.message') : file.name}</strong><small>{voiceDurationMs ? `${voiceTime(voiceDurationMs)} · ` : ''}{fileSize(file.size)}</small></span>
           <button type="button" className="icon-btn" onClick={() => { setFile(null); setVoiceDurationMs(null); }} aria-label={t('chat.removeAttachment')}>×</button>
         </div>
       )}
@@ -137,6 +144,14 @@ export default function MessageInput({ onSend, onTyping, disabled, editing = nul
             if (value.trim()) typingTimer.current = setTimeout(() => typingCallback.current?.(false), 3000);
           }}
           onKeyDown={handleKeyDown}
+          onPaste={(event) => {
+            if (editing || disabled || recording || submitting) return;
+            const pasted = clipboardImage(event.clipboardData);
+            if (!pasted) return;
+            event.preventDefault();
+            if (pasted.error) { setError(t(`errors.${pasted.error}`)); return; }
+            setFile(pasted.file); setVoiceDurationMs(null); setError(null);
+          }}
           placeholder={t('chat.placeholder')}
           aria-label={t('chat.placeholder')}
           enterKeyHint="send"
