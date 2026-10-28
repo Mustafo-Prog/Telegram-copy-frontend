@@ -13,7 +13,7 @@ test('only superadmins see Promote for other ordinary accounts; Premium never gr
   for (const status of ['user', 'admin', undefined, 'unknown']) assert.equal(canPromoteUser({ id: 'actor', status }, regular), false);
   assert.equal(canPromoteUser(owner, owner), false);
   assert.equal(canPromoteUser(owner, { id: 'other', status: 'superadmin' }), false);
-  assert.equal(canPromoteUser(owner, { id: 'premium', status: 'admin' }), false);
+  assert.equal(canPromoteUser(owner, { id: 'premium', status: 'admin' }), true);
   assert.equal(canPromoteUser(owner, null), false);
   assert.equal(accountStatus('unknown'), 'user');
 });

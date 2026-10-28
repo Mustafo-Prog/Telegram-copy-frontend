@@ -10,7 +10,9 @@ import { resizeAvatar } from '../utils/avatar.js';
 import { setPresenceMany } from '../realtime/presence.js';
 import { watchPresence, unwatchPresence } from '../realtime/socket.js';
 import AccountStatusBadge from './AccountStatusBadge.jsx';
-import { accountStatus, canPromoteUser, updateAccountCaches } from '../utils/accountStatus.js';
+import { canPromoteUser, effectiveAccountStatus, mergeAccountProfile, updateAccountCaches } from '../utils/accountStatus.js';
+import useAccountStatus from '../auth/useAccountStatus.js';
+import AccountSubscriptionDetails from './AccountSubscriptionDetails.jsx';
 
 const USERNAME_PATTERN = '[a-z0-9_]{3,32}';
 
@@ -24,8 +26,10 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
     queryKey: ['profile', profile?.id],
     queryFn: () => getProfileById(profile.id),
     enabled: readOnly && Boolean(profile?.id),
+    structuralSharing: mergeAccountProfile,
   });
   const data = readOnly ? { ...profile, ...(fullProfile ?? {}) } : user;
+  const resolvedStatus = useAccountStatus(data.status, data.premiumExpiresAt);
   useEffect(() => {
     if (!readOnly || !data.id) return undefined;
     watchPresence([data.id], setPresenceMany);
@@ -41,6 +45,7 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
   const [saved, setSaved] = useState(false);
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [promoted, setPromoted] = useState(false);
+  const [durationDays, setDurationDays] = useState(30);
   const promotingRef = useRef(false);
   const viewingAvatar = avatarOpen && Boolean(data.avatarUrl);
   const closeAvatar = useCallback(() => setAvatarOpen(false), []);
@@ -86,11 +91,17 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
     promotingRef.current = true;
     setPending(true); setError(null);
     try {
-      const result = await promoteUser(data.id);
-      queryClient.setQueryData(['profile', data.id], (current) => ({ ...data, ...current, ...result }));
-      updateAccountCaches(queryClient, { userId: result.id, status: result.status });
+      const renew = effectiveAccountStatus(data) === 'admin';
+      const result = await promoteUser(data.id, { durationDays, renew,
+        ...(renew ? { expectedExpiresAt: data.premiumExpiresAt, expectedVersion: data.premiumVersion ?? 0 } : {}),
+      });
+      queryClient.setQueryData(['profile', data.id], (current) => mergeAccountProfile({ ...data, ...current }, result));
+      updateAccountCaches(queryClient, { userId: result.id, status: result.status, premiumExpiresAt: result.premiumExpiresAt, premiumVersion: result.premiumVersion });
       setPromoted(true);
-    } catch (err) { setError(err); }
+    } catch (err) {
+      setError(err);
+      if (err.code === 'premium_changed') queryClient.invalidateQueries({ queryKey: ['profile', data.id] });
+    }
     finally { promotingRef.current = false; setPending(false); }
   };
 
@@ -145,7 +156,7 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
 
         {readOnly ? (
           <div className="modal__info">
-            <div className="modal__name">{data.displayName}<AccountStatusBadge status={data.status} compact /></div>
+            <div className="modal__name">{data.displayName}<AccountStatusBadge status={data.status} premiumExpiresAt={data.premiumExpiresAt} compact /></div>
             <div className="modal__username">{data.username ? `@${data.username}` : t('profile.noUsername')}</div>
             {data.id && (
               <div className="modal__presence">
@@ -156,7 +167,7 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
           </div>
         ) : (
           <form onSubmit={save}>
-            <div className="profile-account-status"><span>{t('account.statusLabel')}</span><strong>{t(`account.status.${accountStatus(data.status)}`)}<AccountStatusBadge status={data.status} compact /></strong></div>
+            <AccountSubscriptionDetails user={data} />
             <div className="field">
               <label htmlFor="profile-name">{t('profile.displayName')}</label>
               <input
@@ -222,11 +233,17 @@ export default function ProfileModal({ profile, readOnly = false, onClose, onMes
           </button>
         )}
         {readOnly && error && <div className="auth-error" role="alert">{tError(error)}</div>}
-        {readOnly && <div className="profile-account-status"><span>{t('account.statusLabel')}</span><strong>{t(`account.status.${accountStatus(data.status)}`)}</strong></div>}
-        {readOnly && canPromoteUser(user, data) && <button type="button" className="btn-ghost btn-block profile-promote" disabled={pending} onClick={promote} title={t('account.promoteHint')}>
-          <span aria-hidden="true">★ </span>{pending ? t('account.promoting') : t('account.promote')}
-          <small>{t('account.promoteHint')}</small>
-        </button>}
+        {readOnly && <AccountSubscriptionDetails user={data} />}
+        {readOnly && canPromoteUser(user, data) && <section className="profile-premium-grant">
+          <label htmlFor="premium-duration">{t('account.duration')}</label>
+          <select id="premium-duration" value={durationDays} disabled={pending} onChange={(event) => setDurationDays(Number(event.target.value))}>
+            {[7, 30, 90, 365].map((days) => <option key={days} value={days}>{t('account.days', { count: days })}</option>)}
+          </select>
+          <button type="button" className="btn-ghost btn-block profile-promote" disabled={pending} onClick={promote}>
+            <span aria-hidden="true">★ </span>{pending ? t('account.promoting') : t(resolvedStatus === 'admin' ? 'account.renew' : 'account.promote')}
+            <small>{t(resolvedStatus === 'admin' ? 'account.renewHint' : 'account.promoteHint')}</small>
+          </button>
+        </section>}
         {readOnly && promoted && !error && <p className="form-ok" role="status">{t('account.promoted')}</p>}
       </div>
     </div>

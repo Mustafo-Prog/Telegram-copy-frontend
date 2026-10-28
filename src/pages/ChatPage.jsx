@@ -61,7 +61,7 @@ import { notifyIncoming, subscribeNotificationClicks, clearUserNotifications } f
 import { validChatId } from '../utils/notifications.js';
 import { getMessageReaders, setMessageReaction } from '../api/messageInteractionsApi.js';
 import { applyReactionEvent } from '../realtime/events.js';
-import { accountStatus, updateAccountCaches } from '../utils/accountStatus.js';
+import { accountStatus, mergeAccountUpdate, updateAccountCaches } from '../utils/accountStatus.js';
 import AccountStatusBadge from '../components/AccountStatusBadge.jsx';
 
 const GENERAL_KEY = ['chat', 'general', 'messages'];
@@ -77,6 +77,8 @@ function profileFromMessage(message) {
     username: message.senderUsername,
     avatarUrl: message.senderAvatarUrl,
     status: message.senderStatus,
+    premiumExpiresAt: message.senderPremiumExpiresAt,
+    premiumVersion: message.senderPremiumVersion,
     bio: '',
   };
 }
@@ -171,9 +173,9 @@ export default function ChatPage() {
       if (event === 'account:updated' || event === 'user:updated') {
         if (!payload.userId || accountStatus(payload.status) !== payload.status) return;
         updateAccountCaches(queryClient, payload);
-        updateUser((current) => current?.id === payload.userId ? { ...current, status: payload.status } : current);
+        updateUser((current) => mergeAccountUpdate(current, payload));
         setModal((current) => current?.mode === 'other' && current.profile.id === payload.userId ? {
-          ...current, profile: { ...current.profile, status: payload.status },
+          ...current, profile: mergeAccountUpdate(current.profile, payload),
         } : current);
         return;
       }
@@ -419,7 +421,7 @@ export default function ChatPage() {
             <Avatar name={user.displayName} seed={user.id} size={40} src={user.avatarUrl} />
           </button>
           <div className="sidebar__who">
-            <div className="sidebar__name">{user.displayName}<AccountStatusBadge status={user.status} compact /></div>
+            <div className="sidebar__name">{user.displayName}<AccountStatusBadge status={user.status} premiumExpiresAt={user.premiumExpiresAt} compact /></div>
             <div className="sidebar__email">{user.username ? `@${user.username}` : user.email}</div>
           </div>
           <button

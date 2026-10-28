@@ -140,10 +140,10 @@ export default function MessageBubble({
                 openProfile();
               }}
             >
-              {author}<AccountStatusBadge status={message.senderStatus} compact />
+              {author}<AccountStatusBadge status={message.senderStatus} premiumExpiresAt={message.senderPremiumExpiresAt} compact />
             </button>
           ) : (
-            <div className="bubble__author">{author}<AccountStatusBadge status={message.senderStatus} compact /></div>
+            <div className="bubble__author">{author}<AccountStatusBadge status={message.senderStatus} premiumExpiresAt={message.senderPremiumExpiresAt} compact /></div>
           ))}
         {message.savedFrom && <div className="saved-message-source">{t('saved.from', { name: message.savedFrom.senderName || t('chat.deletedUser') })}</div>}
         {message.replyTo && <button type="button" className="bubble__reply" onClick={(e) => {

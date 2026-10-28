@@ -4,6 +4,9 @@
 .profile-account-status strong { color: var(--ink); }
 .profile-promote { display: block; margin-top: 12px; }
 .profile-promote small { display: block; margin-top: 3px; color: var(--muted); font-weight: 400; }
+.profile-premium-term { margin: -6px 0 14px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.profile-premium-grant label { display: block; margin: 14px 0 7px; font-size: 13px; color: var(--muted); }
+.profile-premium-grant select { width: 100%; border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; background: var(--panel-2); color: var(--ink); font: inherit; }
 .message-reactions { margin-top: 6px; }
 .message-reactions__chips { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .reaction-chip, .reaction-add { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 28px; border: 1px solid transparent; border-radius: 16px; padding: 3px 9px; background: var(--accent-soft); color: var(--accent); font: inherit; font-size: 12px; cursor: pointer; }

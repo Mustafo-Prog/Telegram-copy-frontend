@@ -38,7 +38,7 @@ export default function UserSearch({ onSelect, excludeIds = [] }) {
               <button type="button" className="user-search__item" onClick={() => onSelect(u)}>
                 <Avatar name={u.displayName} seed={u.id} size={34} src={u.avatarUrl} />
                 <span className="user-search__text">
-                  <span className="user-search__name">{u.displayName}<AccountStatusBadge status={u.status} compact /></span>
+                  <span className="user-search__name">{u.displayName}<AccountStatusBadge status={u.status} premiumExpiresAt={u.premiumExpiresAt} compact /></span>
                   <span className="user-search__username">@{u.username}</span>
                 </span>
               </button>

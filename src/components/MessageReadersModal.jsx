@@ -14,7 +14,7 @@ export default function MessageReadersModal({ chat, messageId, onClose }) {
       <p className="message-readers__summary" role="status">{readers.length ? t('readers.count', { count: readers.length }) : t('readers.empty')}</p>
       <ul className="message-readers">{readers.map((user) => <li key={user.id}>
         <Avatar name={user.displayName} seed={user.id} src={user.avatarUrl} size={42} />
-        <span><strong>{user.displayName}<AccountStatusBadge status={user.status} compact /></strong>{user.username && <small>@{user.username}</small>}</span>
+        <span><strong>{user.displayName}<AccountStatusBadge status={user.status} premiumExpiresAt={user.premiumExpiresAt} compact /></strong>{user.username && <small>@{user.username}</small>}</span>
         <span className="message-readers__check" aria-hidden="true">✓✓</span>
       </li>)}</ul>
     </>}
